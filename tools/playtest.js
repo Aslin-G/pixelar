@@ -44,7 +44,7 @@ const shots = process.argv[4];
     BOT.traceBlocks = false;
     // Alcanzabilidad «en vivo»: BFS de plataformas sobre el estado ACTUAL del mundo
     // (puertas cerradas, puentes inactivos, habilidades realmente obtenidas).
-    BOT.reachFrom = (px, py) => {
+    BOT.reachFrom = (px, py, carry) => {
       const W = Game.world, w = W.w, h = W.h;
       const has = a => PROG.abilities.includes(a);
       const raw = (x, y) => (x < 0 || x >= w) ? T.SOLID : (y < 0 || y >= h ? T.AIR : W.tiles[y * w + x]);
@@ -56,9 +56,9 @@ const shots = process.argv[4];
       const hazard = (x, y) => { const t = raw(x, y); return t === T.SPIKE || t === T.POOL; };
       const free = (x, y) => y >= -2 && !solid(x, y) && !hazard(x, y);
       const ground = (x, y) => { const t = raw(x, y); return t === T.SOLID || t === T.DOOR || t === T.BREAK || t === T.ONEWAY || t === T.BRIDGE || t === T.LADDER || extra.has(x + ',' + y); };
-      const ladder = (x, y) => raw(x, y) === T.LADDER;
+      const ladder = (x, y) => !carry && raw(x, y) === T.LADDER; // cargando no se puede trepar
       const stand = (x, y) => free(x, y) && (ground(x, y + 1) || ladder(x, y));
-      const dash = has('fetchDash') ? 3 : 0, HJ = [4 + dash, 4 + dash, 3 + dash, 2 + dash];
+      const dash = has('fetchDash') ? 3 : 0, HJ = carry ? [3 + dash, 3 + dash, 3 + dash, 2 + dash] : [4 + dash, 4 + dash, 3 + dash, 2 + dash];
       const seen = new Set(), air = new Set(), q = [];
       const addS = (x, y) => { const k = x + ',' + y; if (!seen.has(k)) { seen.add(k); q.push([x, y]); } };
       const fall = (x, y) => { const st = [[x, y]]; while (st.length) { const [fx, fy] = st.pop(); if (fy > h + 2) continue; const k = fx + ',' + fy; if (air.has(k)) continue; air.add(k); if (stand(fx, fy)) { addS(fx, fy); continue; } for (const dx of [0, -1, 1]) if (free(fx + dx, fy + 1) && free(fx + dx, fy)) st.push([fx + dx, fy + 1]); } };
@@ -156,6 +156,7 @@ const shots = process.argv[4];
     const info = await page.evaluate(() => ({ idx: Game.world.index, name: Game.world.def.name, w: Game.world.w, h: Game.world.h }));
     console.log(`\n=== NIVEL ${info.idx}: ${info.name} (${info.w}x${info.h})`);
     await shot('lv' + lv + '_start');
+    await page.evaluate(() => { BOT.blockOrigins = Game.world.entities.filter(e => e.kind === 'block').map(b => ({ id: b.id, x: b.x + 8, y: b.y + 6 })); });
     const solver = SOLVERS[lv];
     // pasadas genéricas
     for (let pass = 0; pass < 3; pass++) {
@@ -190,6 +191,15 @@ const shots = process.argv[4];
         let ok = false;
         for (let y = y0; y <= y1 && !ok; y++) for (let x = x0; x <= x1; x++) { const k = x + ',' + y; if (R.seen.has(k) || R.air.has(k)) { ok = true; break; } }
         if (!ok) out.push(e.constructor.name + (e.id ? '#' + e.id : '') + '@' + Math.floor(e.x / TS) + ',' + Math.floor(e.y / TS));
+      }
+      // rutas cargando: desde el origen de cada bloque hasta cada ranura del nivel
+      if (W.def.id !== 0) for (const o of BOT.blockOrigins || []) {
+        const R2 = BOT.reachFrom(o.x, o.y, true), res = [];
+        for (const so of W.entities.filter(e => e.kind === 'socket')) {
+          let ok = false; for (let y = Math.floor(so.y / TS) - 1; y <= Math.floor(so.y / TS) + 1 && !ok; y++) for (let x = Math.floor(so.x / TS) - 1; x <= Math.floor((so.x + so.w) / TS) + 1; x++) if (R2.seen.has(x + ',' + y)) { ok = true; break; }
+          res.push(so.id + (ok ? ' ✓' : ' ✗'));
+        }
+        out.push('{cargando ' + o.id + ' → ' + res.join(', ') + '}');
       }
       for (const d of W.entities) if (d.kind === 'door' && !d.opened) out.push('[puerta cerrada ' + d.id + ' @' + d.tx0 + ',' + d.ty0 + (d.p.flag ? ' flag ' + d.p.flag : '') + ']');
       return out;

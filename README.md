@@ -159,7 +159,7 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `challenges.js` | Los 728 casos (desafíos, generadores y variantes): render, pistas, reinicio y que la solución guiada sea correcta |
 | `smoke.js` | Recorrido con teclado real: título → prólogo → nivel → terminal → pausa y submenús → CONTINUE → modo docente |
 | `playtest.js` | Bot que juega la historia completa (niveles 00–09, jefe, epílogo, informe y posjuego): combate con la contramedida prevista de cada enemigo, comprueba la alcanzabilidad «en vivo» antes de cada interacción y hace un barrido final de accesibilidad por nivel |
-| `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles y ajustes |
+| `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red |
 
 ---
 

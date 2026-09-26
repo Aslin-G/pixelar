@@ -105,5 +105,49 @@ const ok = (c, msg) => console.log((c ? '✓ ' : '✗ ') + msg);
     ok(!errors.length, 'sin errores (habilidades/ajustes) ' + errors.slice(0, 5).join(' | '));
     await page.close();
   }
+  // 6) repaso espaciado: una respuesta fallada reaparece como orbe de eco y abre un desafío de repaso
+  {
+    const { page, errors } = await session(browser);
+    const r = await page.evaluate(() => {
+      startTeacherLevel(1);
+      const W = Game.world;
+      for (let k = 0; k < 300; k++) { const t = Game.top(); if (t.constructor.name === 'DialogueState') { t.chars = t.full; t.pause = 0; t.L.ch ? t.choose() : t.next(); } Game.update(1 / 60); }
+      const m0 = LearningModel.mastery('cpu');
+      LearningModel.record({ concept: 'cpu', chId: 'cpu02', correct: true, firstTry: true, hints: 0, time: 15, expected: 25, conf: 1, difficulty: 2, prompt: 'prueba' });
+      const before = LearningModel.mastery('cpu');
+      if (!(before > m0)) return { before, after: before, up: false };
+      LearningModel.record({ concept: 'cpu', chId: 'cpu01', correct: false, firstTry: false, hints: 1, time: 30, expected: 25, conf: 2, difficulty: 1, prompt: 'prueba' });
+      const after = LearningModel.mastery('cpu');
+      const L = LearningModel.L();
+      const pending = L.review.find(x => x.concept === 'cpu');
+      L.playTime = (pending ? pending.due : 0) + 1; W.echoCd = 0;
+      // colocarse en un punto tranquilo (los ecos no aparecen con enemigos cerca)
+      const cp = W.entities.find(e => e.kind === 'checkpoint');
+      for (const e of W.entities) if (e.enemy) e.dead = true;
+      W.player.x = cp.x; W.player.y = cp.y + cp.h - W.player.h; W.player.facing = 1;
+      let orb = null;
+      for (let k = 0; k < 120 && !orb; k++) { Game.update(1 / 60); orb = W.entities.find(e => e.constructor.name === 'EchoOrb'); }
+      if (!orb) return { before, after, pending: !!pending, orb: false };
+      W.player.x = orb.x; W.player.y = orb.y;
+      let opened = null;
+      for (let k = 0; k < 120 && !opened; k++) { Game.update(1 / 60); const t = Game.top(); if (t.constructor.name === 'ChallengeState') opened = t.o.source + ':' + t.ch.concept; else if (t.constructor.name === 'DialogueState') { t.chars = t.full; t.pause = 0; t.next(); } }
+      return { before, after, pending: !!pending, orb: true, opened };
+    });
+    ok(r.up !== false && r.after < r.before, 'el dominio sube con un acierto y baja con un fallo (… → ' + r.before + ' → ' + r.after + ')');
+    ok(r.pending && r.orb && r.opened && r.opened.includes('cpu'), 'la pregunta fallada reaparece como repaso ' + JSON.stringify(r));
+    ok(!errors.length, 'sin errores (repaso) ' + errors.join(' | '));
+    await page.close();
+  }
+  // 7) sin peticiones de red
+  {
+    const page = await browser.newPage();
+    const reqs = [];
+    page.on('request', q => { if (!q.url().startsWith('file://') && !q.url().startsWith('data:') && !q.url().startsWith('blob:')) reqs.push(q.url()); });
+    await page.goto(file); await page.waitForTimeout(600);
+    await page.evaluate(() => { PROG = newProgress(); Game.stack.length = 0; Game.loadLevel(3); });
+    await page.waitForTimeout(800);
+    ok(!reqs.length, 'ninguna petición de red (' + reqs.length + ')' + (reqs.length ? ': ' + reqs.slice(0, 3).join(' ') : ''));
+    await page.close();
+  }
   await browser.close();
 })();

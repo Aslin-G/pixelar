@@ -238,7 +238,7 @@ const LEVEL7 = {
       '.........................*......',
       '............===.........===.....',
       D32,
-      '......x...y.....o...q........E..',
+      '......x...y.....O...q........E..',
       G32, G32, G32, G32
     ]
   ),
@@ -248,7 +248,7 @@ const LEVEL7 = {
     Z: { type: 'heat', flag: 'L7_cool' },
     k: { type: 'terminal', id: 't_fan', ch: 'bn05', label: 'Monitor térmico', source: 'quest', pre: function* (W) { W.quest('s13'); }, onSolve: function* (W) { W.quest('s13', 'done'); W.flag('L7_fanfix'); yield* W.say([['NEXO', 'Hecho: el ventilador de esta sala estaba detenido. Ya puedes reactivarlo.', 'HAPPY']]); } },
     f: { type: 'fan', id: 'fan1', broken: true }, g: { type: 'fan', id: 'fan2' },
-    o: { type: 'overheat', id: 'oh1' }, r: { type: 'overheat', id: 'oh2' },
+    o: { type: 'overheat', id: 'oh1' }, r: { type: 'overheat', id: 'oh2' }, O: { type: 'overheat', id: 'oh3' },
     F: { type: 'door', id: 'd2', color: PAL.orange, flag: 'L7_heatdone' },
     p: { type: 'terminal', id: 't_oc', ch: 'perf02', label: 'Banco de overclock', door: 'd3', codex: 'freqipc', onSolve: L7_ocDone },
     a: { type: 'sign', id: 'logA', title: 'REGISTRO DE CONTENCIÓN — N.U.L.L.', style: 'null', text: '[AISLAR] Módulo 0x3F (inestable). Riesgo de cascada: -34%.\n[AISLAR] Distrito Norte, placa base: 14 paquetes corruptos confinados en perímetro.\n[APAGAR] Ruta de bus 7: tráfico corrupto. Ruta cortada.\n[MANTENER] El aislamiento reduce el riesgo. Mantener.', onRead: L7_logA },

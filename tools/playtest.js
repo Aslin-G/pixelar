@@ -19,7 +19,7 @@ const shots = process.argv[4];
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
   await page.goto(file);
   await page.waitForTimeout(500);
-  await page.evaluate(({ from }) => {
+  await page.evaluate(({ from, DEBUG_FIGHT }) => {
     const BOT = window.BOT = { dq: [], pq: [], log: [], speed: 4, seenStates: {}, auto: true };
     const origUpdate = Game.update.bind(Game);
     Game.update = function (dt) { for (let k = 0; k < BOT.speed; k++) { try { botStep(); } catch (e) { console.error('BOT ' + e.message + ' ' + e.stack); } origUpdate(dt); } };
@@ -93,7 +93,7 @@ const shots = process.argv[4];
       if (!BOT.checkOn || !e) return;
       if (!BOT.canReach(e)) { const p = Game.world.player; BOT.warn.push((what || e.constructor.name + (e.id ? '#' + e.id : '')) + ' @' + Math.floor(e.x / TS) + ',' + Math.floor(e.y / TS) + ' desde ' + Math.floor(p.x / TS) + ',' + Math.floor(p.y / TS)); }
     };
-    BOT.warn = []; BOT.checkOn = true;
+    BOT.warn = []; BOT.skipped = []; BOT.checkOn = true; BOT.debugFight = DEBUG_FIGHT;
     // Combate «honesto»: usa la contramedida prevista para cada enemigo y ataques reales
     BOT.fight = (e) => {
       const W = Game.world, p = W.player;
@@ -116,11 +116,15 @@ const shots = process.argv[4];
           if (e.kind === 'cachemiss' && p.boostT <= 0) use('cacheBoost');
           if (e.kind === 'packetstorm' && e.freezeT <= 0) use('interruptShield');
           if (e.kind === 'nullpointer' && !e.vis) use('registerRecall');
-          if (e.kind === 'deadlock') { if (!use('aluPulse')) use('parallelClone'); }
+          if (e.kind === 'deadlock') {
+            if (mate && !mate.dead && (Math.abs(mate.cx - e.cx) > 90 || !PROG.abilities.includes('aluPulse'))) { p.facing = e.cx > p.cx ? 1 : -1; p.attack(W); for (let k = 0; k < 5; k++) Game.update(1 / 60); p.facing = mate.cx > p.cx ? 1 : -1; p.attack(W); } // cada Game.update avanza BOT.speed pasos
+            else if (!use('aluPulse')) use('parallelClone');
+          }
           if (e.kind === 'overheat' && e.cooledT <= 0) { const fans = W.entities.filter(x => x.kind === 'fan' && dist(x.cx, x.cy, e.cx, e.cy) < 96); if (!fans.some(x => x.on)) for (const fan of fans) { fan.interact(W); if (fan.on) break; } }
           if (e.kind === 'buserror' && !rerouting && Game.top() instanceof GameplayState) { rerouting = true; BOT.pq.push(e.pk.k); W.run(function* (W2) { yield* e.reroute(W2); rerouting = false; }, 'botreroute'); }
         }
         if (f % 16 === 0) p.attack(W);
+        if (BOT.debugFight && f % 150 === 0) console.warn('fight ' + e.kind + (e.id ? '#' + e.id : '') + ' f' + f + ' ex=' + (e.x / TS).toFixed(1) + ' px=' + (p.x / TS).toFixed(1) + ' py=' + (p.y / TS).toFixed(1) + ' ey=' + (e.y / TS).toFixed(1) + ' hp=' + e.hp + (e.kind === 'overheat' ? ' cooled=' + e.cooledT.toFixed(1) + ' fans=' + W.entities.filter(x => x.kind === 'fan').map(x => x.id + ':' + (x.on ? 'on' : 'off') + ':' + Math.round(dist(x.cx, x.cy, e.cx, e.cy))).join(',') : '') + ' proj=' + W.projectiles.filter(q => q.owner === 'player').length + ' top=' + Game.top().constructor.name);
         Game.update(1 / 60);
       }
       return e.dead ? 'ok' : 'NO (' + e.kind + (e.kind === 'overheat' ? ' ventiladores cerca: ' + W.entities.filter(x => x.kind === 'fan' && dist(x.cx, x.cy, e.cx, e.cy) < 96).length : '') + ')';
@@ -130,13 +134,13 @@ const shots = process.argv[4];
     BOT.tp = (x, y) => { const p = Game.world.player; p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.climbing = false; p.dashT = 0; };
     BOT.tpEnt = (e) => { BOT.checkReach(e); BOT.tp(e.x + e.w / 2 - 5, e.y + e.h - 15); };
     BOT.bid = 0;
-    BOT.ents = () => Game.world.entities.map((e) => ({ enemy: !!e.enemy && e.kind !== 'boss', i: e.__bid || (e.__bid = ++BOT.bid), id: e.id || null, n: e.constructor.name, kind: e.kind, x: e.x, y: e.y, w: e.w, h: e.h, inter: !!e.interactive, dead: !!e.dead }));
+    BOT.ents = () => Game.world.entities.map((e) => ({ pick: !!(e.p && e.p.onPick && e.kind === 'block' && Game.world.def.id === 0), enemy: !!e.enemy && e.kind !== 'boss', i: e.__bid || (e.__bid = ++BOT.bid), id: e.id || null, n: e.constructor.name, kind: e.kind, x: e.x, y: e.y, w: e.w, h: e.h, inter: !!e.interactive, dead: !!e.dead }));
     // arranque de partida nueva real (no modo docente)
     PROG = newProgress();
     if (from > 0) { const pre = LEVEL_PRESETS[from] || {}; PROG.abilities = (pre.abilities || []).slice(); PROG.selAbility = Math.max(0, PROG.abilities.length - 1); Object.assign(PROG.flags, pre.flags || {}); PROG.blueprint = (pre.bp || ['cpu']).slice(); PROG.bpTabs = (pre.tabs || ['hw']).slice(); PROG.xp = pre.xp || 0; PROG.playerLevel = Progression.levelFor(PROG.xp); }
     Game.stack.length = 0;
     Game.loadLevel(from);
-  }, { from });
+  }, { from, DEBUG_FIGHT: !!process.env.DEBUG_FIGHT });
 
   const waitIdle = async (ms = 12000) => {
     try { await page.waitForFunction(() => window.BOT.idle(), null, { timeout: ms, polling: 50 }); return true; }
@@ -159,28 +163,32 @@ const shots = process.argv[4];
     await page.evaluate(() => { BOT.blockOrigins = Game.world.entities.filter(e => e.kind === 'block').map(b => ({ id: b.id, x: b.x + 8, y: b.y + 6 })); });
     const solver = SOLVERS[lv];
     // pasadas genéricas
-    for (let pass = 0; pass < 3; pass++) {
+    for (let pass = 0; pass < 4; pass++) {
+      if (await page.evaluate((lv) => !Game.stack.some(st => st instanceof GameplayState) || !Game.world || Game.world.index !== lv, lv)) break; // ya se salió del nivel (p. ej. al epílogo)
       const ents = await page.evaluate(() => BOT.ents());
       const order = ents.filter(e => !e.dead && (e.kind === 'trigger' || e.inter || e.enemy || ['socket', 'linknode', 'busnode', 'lever', 'block', 'fragment', 'letter', 'historic', 'checkpoint'].includes(e.kind)))
         .sort((a, b) => (info.h > 40 ? a.y - b.y : a.x - b.x));
       for (const e of order) {
-        if (e.n === 'Exit' || e.n === 'Block' || e.n === 'Socket' || e.n === 'Lever' || e.n === 'Plate') continue;
+        if (e.n === 'Exit' || (e.n === 'Block' && !e.pick) || e.n === 'Socket' || e.n === 'Lever' || e.n === 'Plate') continue;
         if (solver && solver.skip && solver.skip(e)) continue;
         await act(`
           const e = Game.world.entities.find(x => x.__bid === arg.i); if (!e || e.dead) return;
           const W = Game.world;
-          if (e.enemy) { if (W.def.id === 9) return; BOT.checkReach(e, 'enemigo ' + e.kind); const r = BOT.fight(e); if (r !== 'ok') BOT.warn.push('enemigo no derrotado: ' + e.kind + (e.id ? '#' + e.id : '') + ' ' + r); return; }
+          // modo estricto: sólo se actúa sobre lo alcanzable desde la posición actual
+          if (!BOT.canReach(e)) { BOT.skipped.push((e.enemy ? 'enemigo ' + e.kind : e.kind === 'trigger' ? 'trigger ' + e.p.id : e.constructor.name) + (e.id ? '#' + e.id : '') + ' @' + Math.floor(e.x / TS) + ',' + Math.floor(e.y / TS)); return; }
+          if (e.enemy) { if (W.def.id === 9) return; const r = BOT.fight(e); if (r !== 'ok') BOT.warn.push('enemigo no derrotado: ' + e.kind + (e.id ? '#' + e.id : '') + ' ' + r); return; }
           if (e.kind === 'trigger') { BOT.checkReach(e, 'trigger ' + e.p.id); BOT.tp(e.x + e.w / 2 - 5, e.y + e.h - 15); return; }
           BOT.tpEnt(e);
           if (e.kind === 'linknode') { const k = (e.p.links || []).findIndex(l => l.ok); if (k < 0 || e.linked) return; BOT.pq.push(k); W.run(function* (W) { yield* e.linkPrompt(W); }, 'botlink'); return; }
           if (e.kind === 'busnode') { const ds = (e.p.dests || []); const k = ds.findIndex(d => !d.wrongDest && !(d.flag && W.has(d.flag))); if (k < 0) return; BOT.pq.push(k, ds[k].bus); W.run(function* (W) { yield* e.bridgePrompt(W); }, 'botbridge'); return; }
           if (e.interactive && (!e.canInteract || e.canInteract(W))) e.interact(W);
+          if (e.kind === 'block' && W.player.carry === e) W.player.dropCarry(W);
         `, { i: e.i });
         await page.waitForTimeout(40);
       }
       if (solver && solver.run) await solver.run(page, act, pass);
       const done = await page.evaluate(() => { const ex = Game.world.entities.find(e => e.constructor.name === 'Exit'); return !ex || !ex.p.needs || Game.world.has(ex.p.needs); });
-      if (done) break;
+      if (done && pass >= 1) break; // siempre al menos una pasada tras el solucionador
     }
     await shot('lv' + lv + '_end');
     const sweep = await page.evaluate(() => {
@@ -222,13 +230,15 @@ const shots = process.argv[4];
     }
     const after = await page.evaluate(() => ({ idx: Game.world && Game.world.index, top: Game.top() && Game.top().constructor.name, completed: BOT.completed }));
     console.log('   tras salida:', JSON.stringify(after), ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    const skipped = await page.evaluate(() => { const l = [...new Set(BOT.skipped)]; BOT.skipped.length = 0; return l; });
+    if (skipped.length) console.log('   · omitidos en algún momento por no ser alcanzables aún: ' + skipped.length);
     const warns = await page.evaluate(() => { const l = BOT.warn.slice(); BOT.warn.length = 0; return l; });
     if (warns.length) console.log('   ⚠ inalcanzable (según estado actual):\n     ' + warns.join('\n     '));
     const blog = await page.evaluate(() => { const l = BOT.log.slice(); BOT.log.length = 0; return l; });
     console.log('   bot:', blog.filter(s => !s.startsWith('challenge')).slice(0, 30).join(' | '));
     console.log('   desafíos:', blog.filter(s => s.startsWith('challenge')).map(s => s.slice(10)).join(' '));
     if (logs.length) { console.log('   LOGS:\n    ' + logs.slice(0, 20).join('\n    ')); logs.length = 0; }
-    if (after.top === 'EndingState') console.log('   ✓ JEFE SUPERADO → EPÍLOGO');
+    if (['EndingState', 'ReportState', 'TitleState'].includes(after.top) && lv === 9) console.log('   ✓ JEFE SUPERADO → EPÍLOGO');
     else if (after.completed !== lv) { console.log('   ✗ NIVEL NO COMPLETADO'); if (!SOLVERS.force) break; }
     else console.log('   ✓ NIVEL COMPLETADO');
   }
@@ -262,21 +272,24 @@ const place = (pairs) => `
     const b = W.ent(bid), so = W.ent(sid);
     if (!b || !so || so.item === b) continue;
     if (so.item) { console.warn('place: socket ocupado ' + sid); continue; }
+    if (!BOT.canReach(b)) { BOT.skipped.push('solver: bloque ' + bid); continue; }
     BOT.tpEnt(b); W.player.carry = null;
     if (b.canInteract(W)) b.interact(W); else console.warn('place: no se puede tomar ' + bid + ' carried=' + b.carried + ' inSocket=' + (b.inSocket && b.inSocket.id));
+    if (!BOT.canReach(so)) { BOT.skipped.push('solver: ranura ' + sid); if (W.player.carry) W.player.dropCarry(W); continue; }
     BOT.tpEnt(so);
     if (so.canInteract(W)) so.interact(W); else console.warn('place: no se puede colocar en ' + sid + ' locked=' + so.locked);
   }`;
 const levers = `
   const W = Game.world;
-  for (const [id, want] of arg) { const lv = W.ent(id); if (!lv) { console.warn('lever? ' + id); continue; } BOT.tpEnt(lv); if (!!lv.on !== want) { if (lv.canInteract && !lv.canInteract(W)) console.warn('lever bloqueada ' + id); else lv.interact(W); } }`;
-const pulseAt = `const W = Game.world, e = W.ent(arg); BOT.tpEnt(e); W.player.y -= 2; W.ab_aluPulse(W.player);`;
+  for (const [id, want] of arg) { const lv = W.ent(id); if (!lv) { console.warn('lever? ' + id); continue; } if (!BOT.canReach(lv)) { BOT.skipped.push('solver: palanca ' + id); continue; } BOT.tpEnt(lv); if (!!lv.on !== want) { if (lv.canInteract && !lv.canInteract(W)) console.warn('lever bloqueada ' + id); else lv.interact(W); } }`;
+const pulseAt = `const W = Game.world, e = W.ent(arg), p = W.player; if (!BOT.canReach(e)) { BOT.skipped.push('solver: pulso ' + arg); return; } BOT.tpEnt(e); p.y -= 2; const i = PROG.abilities.indexOf('aluPulse'); if (i < 0) { console.warn('ALU PULSE aún no obtenido'); return; } PROG.selAbility = i; p.energy = 999; p.cds.aluPulse = 0; W.useAbility();`;
 const SOLVERS = {
   7: {
     run: async (page, act) => {
       // PARALLEL CLONE: el clon pisa una placa y BYTE la otra
       const r = await page.evaluate(() => {
         const W = Game.world, p = W.player, a = W.ent('pl1'), b = W.ent('pl2');
+        if (!BOT.canReach(a)) return 'placas aún inalcanzables';
         BOT.tpEnt(a); p.y = a.y + a.h - p.h; const i = PROG.abilities.indexOf('parallelClone'); if (i < 0) return 'sin clon';
         PROG.selAbility = i; p.energy = 999; p.cds.parallelClone = 0; W.useAbility();
         for (let k = 0; k < 10; k++) Game.update(1 / 60);
@@ -340,7 +353,7 @@ const SOLVERS = {
   0: {
     run: async (page, act) => {
       // recoger los módulos del camino (se copian al búfer de la sala) y luego colocarlos
-      await act(`const W = Game.world; for (const id of arg) { const b = W.ent(id); BOT.tpEnt(b); if (b.canInteract(W)) b.interact(W); if (W.player.carry === b) W.player.dropCarry(W); }`, ['bIn', 'bProc', 'bMem']);
+      await act(`const W = Game.world; for (const id of arg) { const b = W.ent(id); if (!BOT.canReach(b)) { BOT.skipped.push('solver: módulo ' + id); continue; } BOT.tpEnt(b); if (b.canInteract(W)) b.interact(W); if (W.player.carry === b) W.player.dropCarry(W); }`, ['bIn', 'bProc', 'bMem']);
       console.log('   L0 búfer:', await page.evaluate(() => ['bIn', 'bProc', 'bMem', 'bOut'].map(id => { const b = Game.world.ent(id); return id + '@' + Math.floor(b.x / TS); }).join(' ')));
       await act(place(), [['bIn', 'so1'], ['bProc', 'so2'], ['bMem', 'so3'], ['bOut', 'so4']]);
       await act(`const W = Game.world, lv = W.ent('run'); BOT.tpEnt(lv); if (!lv.on) lv.interact(W);`);

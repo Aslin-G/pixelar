@@ -74,6 +74,10 @@ for (const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`|"((?:[^"
       startTeacherLevel(i);
       const W = Game.world;
       res.size = W.w + 'x' + W.h;
+      // ids repetidos (p. ej. un carácter de leyenda con id usado dos veces, o una puerta partida en dos)
+      const idc = {};
+      for (const e of W.entities) if (e.id) idc[e.id] = (idc[e.id] || 0) + 1;
+      for (const k in idc) if (idc[k] > 1) res.issues.push('id repetido: ' + k + ' ×' + idc[k]);
       // referencias
       for (const e of W.entities) {
         if (e.kind === 'trigger' && !(def.triggers && def.triggers[e.p.id])) res.issues.push('trigger sin script: ' + e.p.id);

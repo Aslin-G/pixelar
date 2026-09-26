@@ -177,3 +177,5 @@ const CONCEPTS = {
   bottlenecks: 'CUELLOS DE BOTELLA'
 };
 const CONCEPT_KEYS = Object.keys(CONCEPTS);
+// «1 ciclo» / «N ciclos» con separador de miles en español
+const cyc = n => n.toLocaleString('es') + (n === 1 ? ' ciclo' : ' ciclos');

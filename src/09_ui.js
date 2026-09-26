@@ -84,7 +84,7 @@ const UI = {
       if (ex) { const m = /\+(\d+)/.exec(ex.text), n = /\+(\d+)/.exec(text); if (m && n) { ex.text = ex.text.replace(m[0], '+' + (+m[1] + +n[1])); ex.t = 0; return; } }
     }
     this.toasts.push({ text, col: col || PAL.cyan, t: 0, kind });
-    if (this.toasts.length > 6) this.toasts.shift();
+    if (this.toasts.length > 10) this.toasts.shift();
   },
   caption(text) {
     if (!Settings.data.captions) return;
@@ -93,14 +93,16 @@ const UI = {
   },
   update(dt) {
     this.time += dt;
-    for (const t of this.toasts) t.t += dt;
+    // sólo 3 avisos visibles a la vez; el resto espera su turno (más rápido si hay cola)
+    const fast = this.toasts.length > 3 ? 1.6 : 1;
+    for (let i = 0; i < Math.min(3, this.toasts.length); i++) this.toasts[i].t += dt * fast;
     this.toasts = this.toasts.filter(t => t.t < 3.2);
     for (const c of this.captions) c.t += dt;
     this.captions = this.captions.filter(c => c.t < 2.6);
   },
   drawToasts(g) {
     let y = 60;
-    for (const t of this.toasts) {
+    for (const t of this.toasts.slice(0, 3)) {
       const a = t.t < 0.2 ? t.t / 0.2 : t.t > 2.7 ? (3.2 - t.t) / 0.5 : 1;
       const w = Font.measure(t.text) + 12;
       g.globalAlpha = clamp(a, 0, 1);

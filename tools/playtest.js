@@ -119,7 +119,9 @@ const shots = process.argv[4];
     console.log('   bot:', blog.filter(s => !s.startsWith('challenge')).slice(0, 30).join(' | '));
     console.log('   desafíos:', blog.filter(s => s.startsWith('challenge')).map(s => s.slice(10)).join(' '));
     if (logs.length) { console.log('   LOGS:\n    ' + logs.slice(0, 20).join('\n    ')); logs.length = 0; }
-    if (after.completed !== lv) { console.log('   ✗ NIVEL NO COMPLETADO'); if (!SOLVERS.force) break; }
+    if (after.top === 'EndingState') console.log('   ✓ JEFE SUPERADO → EPÍLOGO');
+    else if (after.completed !== lv) { console.log('   ✗ NIVEL NO COMPLETADO'); if (!SOLVERS.force) break; }
+    else console.log('   ✓ NIVEL COMPLETADO');
   }
   // epílogo: dejar correr la cinemática (a velocidad x4) con capturas periódicas
   if (await page.evaluate(() => Game.top() && Game.top().constructor.name === 'EndingState')) {
@@ -129,7 +131,7 @@ const shots = process.argv[4];
       if (st !== prev) { console.log('   epílogo:', st); prev = st; await shot('end_' + (n++)); }
       if (st.startsWith('TitleState')) {
         // CONTINUE sobre una partida completada abre el menú de posjuego
-        await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+        await page.evaluate(() => { BOT.auto = false; }); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
         console.log('   título tras el final → CONTINUE:', await page.evaluate(() => Game.top().constructor.name + ' ' + (Game.top().title || '')));
         await shot('end_postgame');
         break;

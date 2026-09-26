@@ -336,7 +336,7 @@ const LEVEL4 = {
     for (const f of L4_FLOORS) if (row >= f.row) fl = f;
     g.fillStyle = 'rgba(5,9,13,0.75)'; g.fillRect(4, 52, 150, 26);
     Font.draw(g, 'PISO: ' + fl.n, 8, 52, PAL.violet);
-    Font.draw(g, 'LATENCIA: ' + (W.v.lat || 0).toLocaleString('es') + ' ciclos', 8, 64, (W.v.lat || 0) > 100 ? PAL.red : PAL.amber);
+    Font.draw(g, 'LATENCIA: ' + cyc(W.v.lat || 0), 8, 64, (W.v.lat || 0) > 100 ? PAL.red : PAL.amber);
   },
   hint(W) {
     if (!W.has('trig_4_fl4')) return { text: 'Baja por la torre: el dato no está en los pisos rápidos. Busca los huecos en el suelo.' };

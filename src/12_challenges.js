@@ -601,10 +601,9 @@ const GEN = {
   cpu: [
     diff => {
       const f = pick([2, 2.5, 3, 3.5, 4, 5]), ms = pick([1, 2, 5, 10]);
-      const cyc = Math.round(f * 1e9 * ms / 1000);
-      const fmt = n => n.toLocaleString('es') + ' ciclos';
+      const total = Math.round(f * 1e9 * ms / 1000);
       return { type: 'choice', difficulty: 2, kind: 'CÁLCULO', prompt: 'Una CPU a *' + String(f).replace('.', ',') + ' GHz*, ¿cuántos ciclos completa en *' + ms + ' ms*?',
-        data: { options: numOptions(cyc, [cyc / 1000, cyc * 1000, cyc / 10], fmt) },
+        data: { options: numOptions(total, [total / 1000, total * 1000, total / 10], cyc) },
         explanation: 'Ciclos = frecuencia × tiempo. 1 GHz = 10^9 ciclos/s; 1 ms = 10^-3 s.', hints: ['Convierte GHz a ciclos por segundo.', 'Multiplica por el tiempo en segundos.', 'Descarto opciones.'] };
     },
     diff => {
@@ -641,7 +640,7 @@ const GEN = {
       const found = randi(1, 4), addr = '0x' + randi(4096, 65535).toString(16).toUpperCase();
       const total = MEM_LEVELS.slice(0, found + 1).reduce((s, l) => s + l.lat, 0);
       return { type: 'memsim', difficulty: 2, kind: 'PREDICCIÓN', prompt: 'Solicitud *' + addr + '*. Recorre la jerarquía hasta encontrarla.',
-        data: { addr, found, q: '¿Cuántos ciclos costó el acceso completo?', options: numOptions(total, [MEM_LEVELS[found].lat, total * 2, total + 200, Math.max(1, total - MEM_LEVELS[found].lat)], n => n.toLocaleString('es') + ' ciclos') },
+        data: { addr, found, q: '¿Cuántos ciclos costó el acceso completo?', options: numOptions(total, [MEM_LEVELS[found].lat, total * 2, total + 200, Math.max(1, total - MEM_LEVELS[found].lat)], cyc) },
         hl: [found], explanation: 'Cada nivel consultado añade su latencia; el total es la suma hasta el nivel del acierto.', hints: ['Suma las latencias de todos los niveles consultados.', 'Mira el nivel resaltado.', 'Descarto opciones.'] };
     },
     diff => {

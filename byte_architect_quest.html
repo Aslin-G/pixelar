@@ -200,6 +200,8 @@ const CONCEPTS = {
   bottlenecks: 'CUELLOS DE BOTELLA'
 };
 const CONCEPT_KEYS = Object.keys(CONCEPTS);
+// «1 ciclo» / «N ciclos» con separador de miles en español
+const cyc = n => n.toLocaleString('es') + (n === 1 ? ' ciclo' : ' ciclos');
 
 
 // ==================== 02_font.js ====================
@@ -1846,7 +1848,7 @@ const ACHIEVEMENTS = [
   { id: 'integrate', n: 'Integración', d: 'Restaura ARQUITECTURA-01.' },
   { id: 'master', n: 'Arquitecto', d: 'Alcanza 70% de dominio estimado en todos los conceptos.' },
   { id: 'nodmg', n: 'Sistema estable', d: 'Completa un nivel sin perder HP.' },
-  { id: 'teacher', n: 'Explorador curioso', d: 'Lee 20 entradas del Codex.' }
+  { id: 'teacher', n: 'Explorador curioso', d: 'Desbloquea 20 entradas del Codex.' }
 ];
 const Achievements = {
   unlock(id) {
@@ -1960,7 +1962,7 @@ const UI = {
       if (ex) { const m = /\+(\d+)/.exec(ex.text), n = /\+(\d+)/.exec(text); if (m && n) { ex.text = ex.text.replace(m[0], '+' + (+m[1] + +n[1])); ex.t = 0; return; } }
     }
     this.toasts.push({ text, col: col || PAL.cyan, t: 0, kind });
-    if (this.toasts.length > 6) this.toasts.shift();
+    if (this.toasts.length > 10) this.toasts.shift();
   },
   caption(text) {
     if (!Settings.data.captions) return;
@@ -1969,14 +1971,16 @@ const UI = {
   },
   update(dt) {
     this.time += dt;
-    for (const t of this.toasts) t.t += dt;
+    // sólo 3 avisos visibles a la vez; el resto espera su turno (más rápido si hay cola)
+    const fast = this.toasts.length > 3 ? 1.6 : 1;
+    for (let i = 0; i < Math.min(3, this.toasts.length); i++) this.toasts[i].t += dt * fast;
     this.toasts = this.toasts.filter(t => t.t < 3.2);
     for (const c of this.captions) c.t += dt;
     this.captions = this.captions.filter(c => c.t < 2.6);
   },
   drawToasts(g) {
     let y = 60;
-    for (const t of this.toasts) {
+    for (const t of this.toasts.slice(0, 3)) {
       const a = t.t < 0.2 ? t.t / 0.2 : t.t > 2.7 ? (3.2 - t.t) / 0.5 : 1;
       const w = Font.measure(t.text) + 12;
       g.globalAlpha = clamp(a, 0, 1);
@@ -3226,13 +3230,13 @@ class MemSimWidget extends Widget {
       g.fillRect(a.x, y, Math.min(w, tw), rowH - 2);
       g.fillStyle = st === 'HIT' ? PAL.green : st === 'MISS' ? PAL.red : PAL.panelB; g.fillRect(a.x, y, 2, rowH - 2);
       Font.draw(g, L.n, a.x + 5, y + Math.floor((rowH - 14) / 2), PAL.white);
-      Font.draw(g, L.lat.toLocaleString('es') + ' ciclos', a.x + tw + 6, y + Math.floor((rowH - 14) / 2), PAL.grayL);
+      Font.draw(g, cyc(L.lat), a.x + tw + 6, y + Math.floor((rowH - 14) / 2), PAL.grayL);
       Font.draw(g, L.cap, a.x + tw + 90, y + Math.floor((rowH - 14) / 2), PAL.gray);
       if (st) Font.draw(g, st, a.x + Math.min(w, tw) - 4, y + Math.floor((rowH - 14) / 2), st === 'HIT' ? PAL.green : PAL.red, { align: 'right' });
       if (this.phase === 'fill' && i < this.d.found && this.fillT * 5 > (this.d.found - i)) Font.draw(g, 'COPIA ↑', a.x + Math.min(w, tw) - 4, y + Math.floor((rowH - 14) / 2), PAL.cyan, { align: 'right' });
     });
     Font.draw(g, 'SOLICITUD: ' + this.d.addr, a.x, a.y, PAL.amber);
-    Font.draw(g, 'LATENCIA ACUMULADA: ' + this.total.toLocaleString('es') + ' ciclos', a.x + 150, a.y, this.total > 1000 ? PAL.red : this.total > 50 ? PAL.amber : PAL.green);
+    Font.draw(g, 'LATENCIA ACUMULADA: ' + cyc(this.total), a.x + 150, a.y, this.total > 1000 ? PAL.red : this.total > 50 ? PAL.amber : PAL.green);
     if (this.phase === 'search' && this.checking <= 0) {
       const y = a.y + 16 + this.lvl * rowH;
       Font.draw(g, '◀ ' + (this.lvl === 0 ? 'E: buscar aquí' : 'MISS · E: bajar'), a.x + tw + 138, y + Math.floor((rowH - 14) / 2), PAL.cyan);
@@ -4203,10 +4207,9 @@ const GEN = {
   cpu: [
     diff => {
       const f = pick([2, 2.5, 3, 3.5, 4, 5]), ms = pick([1, 2, 5, 10]);
-      const cyc = Math.round(f * 1e9 * ms / 1000);
-      const fmt = n => n.toLocaleString('es') + ' ciclos';
+      const total = Math.round(f * 1e9 * ms / 1000);
       return { type: 'choice', difficulty: 2, kind: 'CÁLCULO', prompt: 'Una CPU a *' + String(f).replace('.', ',') + ' GHz*, ¿cuántos ciclos completa en *' + ms + ' ms*?',
-        data: { options: numOptions(cyc, [cyc / 1000, cyc * 1000, cyc / 10], fmt) },
+        data: { options: numOptions(total, [total / 1000, total * 1000, total / 10], cyc) },
         explanation: 'Ciclos = frecuencia × tiempo. 1 GHz = 10^9 ciclos/s; 1 ms = 10^-3 s.', hints: ['Convierte GHz a ciclos por segundo.', 'Multiplica por el tiempo en segundos.', 'Descarto opciones.'] };
     },
     diff => {
@@ -4243,7 +4246,7 @@ const GEN = {
       const found = randi(1, 4), addr = '0x' + randi(4096, 65535).toString(16).toUpperCase();
       const total = MEM_LEVELS.slice(0, found + 1).reduce((s, l) => s + l.lat, 0);
       return { type: 'memsim', difficulty: 2, kind: 'PREDICCIÓN', prompt: 'Solicitud *' + addr + '*. Recorre la jerarquía hasta encontrarla.',
-        data: { addr, found, q: '¿Cuántos ciclos costó el acceso completo?', options: numOptions(total, [MEM_LEVELS[found].lat, total * 2, total + 200, Math.max(1, total - MEM_LEVELS[found].lat)], n => n.toLocaleString('es') + ' ciclos') },
+        data: { addr, found, q: '¿Cuántos ciclos costó el acceso completo?', options: numOptions(total, [MEM_LEVELS[found].lat, total * 2, total + 200, Math.max(1, total - MEM_LEVELS[found].lat)], cyc) },
         hl: [found], explanation: 'Cada nivel consultado añade su latencia; el total es la suma hasta el nivel del acierto.', hints: ['Suma las latencias de todos los niveles consultados.', 'Mira el nivel resaltado.', 'Descarto opciones.'] };
     },
     diff => {
@@ -8558,7 +8561,7 @@ const LEVEL4 = {
     for (const f of L4_FLOORS) if (row >= f.row) fl = f;
     g.fillStyle = 'rgba(5,9,13,0.75)'; g.fillRect(4, 52, 150, 26);
     Font.draw(g, 'PISO: ' + fl.n, 8, 52, PAL.violet);
-    Font.draw(g, 'LATENCIA: ' + (W.v.lat || 0).toLocaleString('es') + ' ciclos', 8, 64, (W.v.lat || 0) > 100 ? PAL.red : PAL.amber);
+    Font.draw(g, 'LATENCIA: ' + cyc(W.v.lat || 0), 8, 64, (W.v.lat || 0) > 100 ? PAL.red : PAL.amber);
   },
   hint(W) {
     if (!W.has('trig_4_fl4')) return { text: 'Baja por la torre: el dato no está en los pisos rápidos. Busca los huecos en el suelo.' };

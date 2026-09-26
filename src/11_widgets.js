@@ -921,13 +921,13 @@ class MemSimWidget extends Widget {
       g.fillRect(a.x, y, Math.min(w, tw), rowH - 2);
       g.fillStyle = st === 'HIT' ? PAL.green : st === 'MISS' ? PAL.red : PAL.panelB; g.fillRect(a.x, y, 2, rowH - 2);
       Font.draw(g, L.n, a.x + 5, y + Math.floor((rowH - 14) / 2), PAL.white);
-      Font.draw(g, L.lat.toLocaleString('es') + ' ciclos', a.x + tw + 6, y + Math.floor((rowH - 14) / 2), PAL.grayL);
+      Font.draw(g, cyc(L.lat), a.x + tw + 6, y + Math.floor((rowH - 14) / 2), PAL.grayL);
       Font.draw(g, L.cap, a.x + tw + 90, y + Math.floor((rowH - 14) / 2), PAL.gray);
       if (st) Font.draw(g, st, a.x + Math.min(w, tw) - 4, y + Math.floor((rowH - 14) / 2), st === 'HIT' ? PAL.green : PAL.red, { align: 'right' });
       if (this.phase === 'fill' && i < this.d.found && this.fillT * 5 > (this.d.found - i)) Font.draw(g, 'COPIA ↑', a.x + Math.min(w, tw) - 4, y + Math.floor((rowH - 14) / 2), PAL.cyan, { align: 'right' });
     });
     Font.draw(g, 'SOLICITUD: ' + this.d.addr, a.x, a.y, PAL.amber);
-    Font.draw(g, 'LATENCIA ACUMULADA: ' + this.total.toLocaleString('es') + ' ciclos', a.x + 150, a.y, this.total > 1000 ? PAL.red : this.total > 50 ? PAL.amber : PAL.green);
+    Font.draw(g, 'LATENCIA ACUMULADA: ' + cyc(this.total), a.x + 150, a.y, this.total > 1000 ? PAL.red : this.total > 50 ? PAL.amber : PAL.green);
     if (this.phase === 'search' && this.checking <= 0) {
       const y = a.y + 16 + this.lvl * rowH;
       Font.draw(g, '◀ ' + (this.lvl === 0 ? 'E: buscar aquí' : 'MISS · E: bajar'), a.x + tw + 138, y + Math.floor((rowH - 14) / 2), PAL.cyan);

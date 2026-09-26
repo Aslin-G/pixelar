@@ -190,7 +190,7 @@ const ACHIEVEMENTS = [
   { id: 'integrate', n: 'Integración', d: 'Restaura ARQUITECTURA-01.' },
   { id: 'master', n: 'Arquitecto', d: 'Alcanza 70% de dominio estimado en todos los conceptos.' },
   { id: 'nodmg', n: 'Sistema estable', d: 'Completa un nivel sin perder HP.' },
-  { id: 'teacher', n: 'Explorador curioso', d: 'Lee 20 entradas del Codex.' }
+  { id: 'teacher', n: 'Explorador curioso', d: 'Desbloquea 20 entradas del Codex.' }
 ];
 const Achievements = {
   unlock(id) {

@@ -101,7 +101,8 @@ const UI = {
     this.captions = this.captions.filter(c => c.t < 2.6);
   },
   drawToasts(g) {
-    let y = 60;
+    let y = Math.max(60, this.toastTop || 0);
+    this.toastTop = 0;
     for (const t of this.toasts.slice(0, 3)) {
       const a = t.t < 0.2 ? t.t / 0.2 : t.t > 2.7 ? (3.2 - t.t) / 0.5 : 1;
       const w = Font.measure(t.text) + 12;

@@ -180,9 +180,10 @@ function drawHUD(g, W, st) {
     const b = W.barks[0];
     const spk = SPEAKERS[b.s] || SPEAKERS.SYS;
     const lines = UI.wrap(b.t, 300);
-    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = 44;
+    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = 58;
     const a = b.time < 0.15 ? b.time / 0.15 : b.dur - b.time < 0.3 ? (b.dur - b.time) / 0.3 : 1;
     g.globalAlpha = clamp(a, 0, 1);
+    UI.toastTop = by + bh + 4; // los avisos se colocan debajo del comentario
     g.fillStyle = 'rgba(6,12,18,0.9)'; g.fillRect(bx, by, bw, bh);
     g.fillStyle = spk.col; g.fillRect(bx, by, 2, bh);
     g.drawImage(getPortrait(spk.portrait || b.s, b.e || (b.s === 'NEXO' ? 'NEUTRAL' : undefined)), bx + 4, by + 4, 16, 16);

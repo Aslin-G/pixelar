@@ -29,6 +29,22 @@ const L0_WHY = {
   MEMORY: 'El resultado debe quedar en MEMORIA antes de mostrarse; si no, se pierde entre pasos.',
   OUTPUT: 'La SALIDA va al final: sólo se puede mostrar lo que ya se procesó y se guardó.'
 };
+// Los módulos recogidos por el camino se copian al búfer de la Sala del Sistema: allí se ordena
+// el flujo. (Llevarlos a mano por escaleras y pasarelas de un sentido no sería posible.)
+const L0_RACK = { bMem: 113, bIn: 115, bProc: 116 };
+function L0_rackPlace(W, b) {
+  b.x = L0_RACK[b.id] * TS; b.y = 16 * TS - b.h; b.vy = 0; b.home = { x: b.x, y: b.y };
+}
+function L0_toBuffer(W, b) {
+  if (W.has('L0_buf_' + b.p.item)) return;
+  W.player.carry = null; b.carried = false;
+  W.particles.burst(b.cx, b.cy, 18, { col: [PAL.cyan, PAL.white], kind: 'bit', max: 90 });
+  L0_rackPlace(W, b);
+  W.flag('L0_buf_' + b.p.item);
+  AudioSys.play('link');
+  UI.toast('MÓDULO ' + b.p.label + ' → BÚFER DE LA SALA DEL SISTEMA', PAL.cyan);
+  if (!W.has('L0_bufTold')) { W.flag('L0_bufTold'); W.bark('NEXO', 'Módulo copiado al búfer. Lo encontrarás en la Sala del Sistema, junto a las ranuras.', 'HAPPY', 4); }
+}
 const LEVEL0 = {
   id: 0, key: 'boot', name: 'BOOT CAMP', theme: 'boot', music: 'boot', concepts: ['hardwareBasics'],
   reward: 'Habilidad base: DEBUG PING', exit: { needs: 'L0_exit', lockedText: 'SALIDA BLOQUEADA: el flujo del sistema no está verificado.', onEnter: function* (W) { W.quest('m0', 'done'); } },
@@ -92,7 +108,7 @@ const LEVEL0 = {
       '....................S..........#',
       '...............................#',
       'YY.............................#', 'YY.............................#', 'YY.............................#',
-      'YYu...1...2...3...4...r..q...E.#',
+      'YYu.....1...2...3...4..r.q...E.#',
       G32, G32, G32, G32
     ]
   ),
@@ -100,8 +116,8 @@ const LEVEL0 = {
     J: { type: 'trigger', id: 'jump' }, L: { type: 'trigger', id: 'ladder' }, O: { type: 'trigger', id: 'drop' }, A: { type: 'trigger', id: 'attack' },
     Z: { type: 'trigger', id: 'latency' }, Y: { type: 'trigger', id: 'hall' },
     v: { type: 'deco', deco: 'lamp' }, w: { type: 'deco', deco: 'chip' },
-    i: { type: 'block', item: 'INPUT', label: 'ENTRADA', id: 'bIn' }, p: { type: 'block', item: 'PROCESS', label: 'PROCESO', id: 'bProc' },
-    m: { type: 'block', item: 'MEMORY', label: 'MEMORIA', id: 'bMem' }, u: { type: 'block', item: 'OUTPUT', label: 'SALIDA', id: 'bOut' },
+    i: { type: 'block', item: 'INPUT', label: 'ENTRADA', id: 'bIn', onPick: L0_toBuffer }, p: { type: 'block', item: 'PROCESS', label: 'PROCESO', id: 'bProc', onPick: L0_toBuffer },
+    m: { type: 'block', item: 'MEMORY', label: 'MEMORIA', id: 'bMem', onPick: L0_toBuffer }, u: { type: 'block', item: 'OUTPUT', label: 'SALIDA', id: 'bOut' },
     d: { type: 'drone' },
     s: { type: 'screen', id: 'scr1', sw: 3, sh: 2, idle: 'text' }, S: { type: 'screen', id: 'mon', sw: 3, sh: 2, idle: 'off' },
     t: { type: 'terminal', id: 't_hw', ch: 'hw01', label: 'Terminal de inventario', door: 'd1', codex: 'hwsw' },
@@ -111,6 +127,7 @@ const LEVEL0 = {
     q: { type: 'terminal', id: 't_fail', ch: 'hw04', label: 'Terminal de diagnóstico', pre: function* (W) { if (!W.has('L0_flow')) { W.bark(guide(), 'Primero completa el flujo del sistema: coloca los cuatro módulos y ejecútalo.', 'CURIOUS'); return false; } }, onSolve: function* (W) { W.flag('L0_exit'); W.codex('ipo'); yield* W.say([['NEXO', 'Salida desbloqueada. Y una idea guardada para más tarde: los sistemas pueden quedar *incompletos* sin estar *muertos*.', 'HAPPY']]); } }
   },
   onLoad(W) {
+    for (const id in L0_RACK) { const b = W.ent(id); if (b && W.has('L0_buf_' + b.p.item)) L0_rackPlace(W, b); }
     if (W.has('L0_flow')) {
       L0_EXPECT.forEach((k, i) => {
         const so = W.ent('so' + (i + 1)), b = W.entities.find(e => e.kind === 'block' && e.p.item === k);
@@ -182,7 +199,7 @@ const LEVEL0 = {
     const mon = W.ent('mon');
     if (!socks.length || !mon) return;
     const y = socks[0].y + 6;
-    const x0 = socks[0].x - 40, x1 = mon.x + mon.w / 2;
+    const x0 = socks[0].x - 22, x1 = mon.x + mon.w / 2;
     g.fillStyle = '#123C52'; g.fillRect(x0, y, x1 - x0, 1);
     g.fillRect(x1, mon.y + mon.h + 6, 1, y - mon.y - mon.h - 6);
     // teclado de origen
@@ -200,7 +217,7 @@ const LEVEL0 = {
   hint(W) {
     if (!W.has('term_t_hw') && !W.has('L0_flow')) {
       const blocks = ['bIn', 'bProc', 'bMem'].map(id => W.ent(id)).filter(b => b && !b.carried && !b.inSocket && b.x < 100 * TS);
-      if (W.player.x < 96 * TS && blocks.length) { const b = blocks[0]; return { text: 'Recoge los módulos del camino y llévalos contigo. Ese de ahí es el ' + b.p.label + '.', x: b.cx, y: b.y }; }
+      if (W.player.x < 96 * TS && blocks.length) { const b = blocks[0]; return { text: 'Recoge los módulos del camino: se copian al búfer de la Sala del Sistema. Ese de ahí es el ' + b.p.label + '.', x: b.cx, y: b.y }; }
       const t = W.ent('t_hw'); return { text: 'La puerta se abre al clasificar el inventario en la terminal.', x: t.cx, y: t.y };
     }
     if (!W.has('L0_flow')) return { text: 'Piensa en el recorrido de una tecla: ¿qué ocurre primero, qué la transforma, dónde se guarda, por dónde sale? Coloca los módulos y acciona RUN.', x: W.ent('run').cx, y: W.ent('run').y };

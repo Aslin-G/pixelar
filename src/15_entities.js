@@ -615,7 +615,12 @@ class PacketStormEnemy extends Enemy {
   }
   interrupt(W) { this.freezeT = 3; this.stormT = 3; floatText(W, this.cx, this.y - 8, 'INTERRUMPIDO', PAL.red); }
   hit(W, dmg, srcX, kind) {
-    if (this.freezeT <= 0) { floatText(W, this.cx, this.y - 8, 'SATURADO', PAL.amber); if (!W.has('tip_storm') && PROG.abilities.includes('interruptShield')) W.tip('storm', 'PacketStorm sólo es vulnerable interrumpido: usa INTERRUPT SHIELD cerca o bloquea sus paquetes.'); return false; }
+    if (this.freezeT <= 0) {
+      floatText(W, this.cx, this.y - 8, 'SATURADO', PAL.amber);
+      if (PROG.abilities.includes('interruptShield')) { if (!W.has('tip_storm')) W.tip('storm', 'PacketStorm sólo es vulnerable mientras está interrumpido: usa INTERRUPT SHIELD cerca (también saltando) y luego atácalo.'); }
+      else if (!W.has('tip_storm0')) W.tip('storm0', 'PacketStorm satura el bus con solicitudes y ahora mismo no tienes forma de interrumpirlo. Esquiva sus paquetes y sigue adelante.');
+      return false;
+    }
     return super.hit(W, dmg, srcX, kind);
   }
   render(g) { this.drawFrames(g, Sprites.enemies.packetstorm, false); }

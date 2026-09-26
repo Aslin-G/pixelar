@@ -281,7 +281,7 @@ const LEVEL7 = {
     W.unlock();
   },
   update(W, dt) {
-    if (!W.has('L7_heatdone') && !W.ent('oh1') && !W.ent('oh2')) { W.flag('L7_heatdone'); W.flag('L7_cool'); W.openDoor('d2'); W.bark(guide(), 'Temperatura bajo control. La sala vuelve a ser habitable.', 'HAPPY'); }
+    if (!W.has('L7_heatdone') && ['oh1', 'oh2'].every(id => { const e = W.ent(id); return !e || e.dead; })) { W.flag('L7_heatdone'); W.flag('L7_cool'); W.openDoor('d2'); W.bark(guide(), 'Temperatura bajo control. La sala vuelve a ser habitable.', 'HAPPY'); }
     if (!W.has('L7_plates')) {
       const a = W.ent('pl1'), b = W.ent('pl2');
       if (a && b && a.pressed && b.pressed) { W.flag('L7_plates'); W.openDoor('d4'); W.sfx('correct'); W.bark(guide(), 'Dos acciones a la vez. Eso es paralelismo: tareas independientes, ejecutadas simultáneamente.', 'HAPPY', 5); }

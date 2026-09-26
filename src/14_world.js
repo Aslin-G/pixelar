@@ -438,6 +438,7 @@ class World {
     this.projectiles = this.projectiles.filter(p => !p.dead);
     this.particles.update(dt);
     if (this.entities.some(e => e.dead)) {
+      for (const e of this.entities) if (e.dead && e.id && this.byId[e.id] === e) delete this.byId[e.id];
       this.entities = this.entities.filter(e => !e.dead);
     }
     this.cam.update(dt, this.player);

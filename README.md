@@ -158,7 +158,7 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `validate.js` | Mapas (anchos, leyendas, inicio, fragmentos), referencias a desafíos y Codex, cobertura de glifos y alcanzabilidad aproximada de salidas y objetos |
 | `challenges.js` | Los 728 casos (desafíos, generadores y variantes): render, pistas, reinicio y que la solución guiada sea correcta |
 | `smoke.js` | Recorrido con teclado real: título → prólogo → nivel → terminal → pausa y submenús → CONTINUE → modo docente |
-| `playtest.js` | Bot que juega la historia completa (niveles 00–09, jefe, epílogo, informe y posjuego) |
+| `playtest.js` | Bot que juega la historia completa (niveles 00–09, jefe, epílogo, informe y posjuego): combate con la contramedida prevista de cada enemigo, comprueba la alcanzabilidad «en vivo» antes de cada interacción y hace un barrido final de accesibilidad por nivel |
 | `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles y ajustes |
 
 ---
@@ -196,5 +196,8 @@ Decisiones propias tomadas al llevar los documentos de diseño a un juego jugabl
     concepto debe repasarse.
 12. **Menú de posjuego**: al pulsar CONTINUE con la historia terminada se puede volver a ver el
     epílogo, consultar el informe o entrar en práctica y selección de niveles.
-13. **«El error es información, no un veredicto»**: la pantalla de apagado tras perder toda la
+13. **Búfer de módulos en el Boot Camp**: los módulos ENTRADA, PROCESO y MEMORIA que se recogen por el
+    camino se copian al búfer de la Sala del Sistema, donde se resuelve el orden del flujo (así el
+    tutorial enseña a moverse sin obligar a cargar bloques por escaleras).
+14. **«El error es información, no un veredicto»**: la pantalla de apagado tras perder toda la
     energía refuerza el tono del juego; se reaparece en el último checkpoint.

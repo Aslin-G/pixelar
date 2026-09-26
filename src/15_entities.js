@@ -338,13 +338,16 @@ class Projectile {
     if (this.life <= 0) { this.dead = true; return; }
     if (W.solidAt(this.x, this.y)) { this.dead = true; W.particles.burst(this.x, this.y, 5, { col: this.col, max: 50 }); return; }
     if (this.owner === 'player') {
+      // los enemigos tienen prioridad; un objeto «pingable» sólo consume el disparo si reacciona
+      let pingT = null;
       for (const e of W.entities) {
         if (e.dead) continue;
         if (this.x > e.x && this.x < e.x + e.w && this.y > e.y - 2 && this.y < e.y + e.h + 2) {
           if (e.enemy) { e.hit(W, this.dmg, this.x - this.vx * 0.02, 'ping'); this.dead = true; W.particles.burst(this.x, this.y, 6, { col: PAL.cyan, max: 60 }); return; }
-          if (e.onPing) { e.onPing(W); this.dead = true; return; }
+          if (e.onPing && !pingT) pingT = e;
         }
       }
+      if (pingT && pingT.onPing(W) !== false) { this.dead = true; return; }
     } else {
       const p = W.player;
       if (p.shieldT > 0 && dist(this.x, this.y, p.cx, p.y + 8) < 18) { this.frozen = 0.5; this.vx = 0; this.vy = 0; AudioSys.play('tick'); if (this.src && this.src.interrupt) this.src.interrupt(W); return; }
@@ -1074,7 +1077,7 @@ class Fan extends Ent {
   constructor(cx, cy, p) { super(cx, cy, p, 18, 18); this.interactive = true; this.kind = 'fan'; this.on = !!p.on; this.layer = 1; }
   get prompt() { return this.on ? 'Apagar ventilador' : 'Activar ventilador'; }
   interact(W) { this.toggle(W); }
-  onPing(W) { if (!this.on) this.toggle(W); }
+  onPing(W) { if (this.on) return false; this.toggle(W); return true; }
   toggle(W) { this.on = !this.on; AudioSys.play(this.on ? 'boost' : 'ui_back'); if (this.p.flag) W.flag(this.p.flag, this.on); if (this.p.onToggle) this.p.onToggle(W, this); }
   update(W, dt) {
     this.t += dt;

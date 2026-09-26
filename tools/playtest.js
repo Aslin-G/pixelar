@@ -218,6 +218,7 @@ const shots = process.argv[4];
       const W = Game.world; const ex = W.entities.find(e => e.constructor.name === 'Exit');
       if (!ex) return { noExit: true };
       const need = ex.p.needs; const ok = !need || W.has(need);
+      BOT.exitReachable = BOT.canReach(ex);
       BOT.tpEnt(ex);
       return { need, ok, flags: Object.keys(PROG.flags).filter(k => k.startsWith('L' + W.index)).join(',') };
     });
@@ -240,6 +241,7 @@ const shots = process.argv[4];
     if (logs.length) { console.log('   LOGS:\n    ' + logs.slice(0, 20).join('\n    ')); logs.length = 0; }
     if (['EndingState', 'ReportState', 'TitleState'].includes(after.top) && lv === 9) console.log('   ✓ JEFE SUPERADO → EPÍLOGO');
     else if (after.completed !== lv) { console.log('   ✗ NIVEL NO COMPLETADO'); if (!SOLVERS.force) break; }
+    else if (!(await page.evaluate(() => BOT.exitReachable))) console.log('   ✗ NIVEL COMPLETADO SÓLO TELETRANSPORTANDO A LA SALIDA (inalcanzable a pie)');
     else console.log('   ✓ NIVEL COMPLETADO');
   }
   // epílogo: dejar correr la cinemática (a velocidad x4) con capturas periódicas

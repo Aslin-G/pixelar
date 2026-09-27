@@ -49,7 +49,7 @@ const shots = process.argv[2];
         const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
         const iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
         if (ix <= 1 || iy <= 1) continue;
-        if (a.text === b.text && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 4) continue; // doble trazo intencionado
+        if (a.text === b.text && Math.abs(a.x - b.x) <= 6 && Math.abs(a.y - b.y) <= 6 * a.s) continue; // sombra/relieve del mismo texto (intencionado)
         const bx = Math.max(a.x, b.x), by = Math.max(a.y, b.y);
         const first = a.o < b.o ? a : b, second = a.o < b.o ? b : a;
         if (covered(bx, by, ix, iy, first.o, second.o) || covered(bx, by, ix, iy, second.o)) continue; // uno de los dos queda tapado por un panel

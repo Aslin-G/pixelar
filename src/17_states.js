@@ -766,7 +766,6 @@ class TitleState {
   }
   update(dt) {
     this.t += dt;
-    for (const r of this.rain) { r.y += r.v * dt; if (r.y > H) { r.y = -10; r.x = randi(0, W); } }
     const it = this.items(), n = it.length;
     if (Input.nav('up')) { this.sel = (this.sel + n - 1) % n; AudioSys.play('ui_move'); }
     if (Input.nav('down')) { this.sel = (this.sel + 1) % n; AudioSys.play('ui_move'); }
@@ -775,33 +774,64 @@ class TitleState {
     if (Input.pressed('confirm') || (r != null && r >= 0)) { const i2 = it[this.sel]; if (i2.disabled) { AudioSys.play('ui_back'); return; } AudioSys.play('ui_ok'); i2.fn(); }
   }
   render(g) {
-    g.fillStyle = PAL.bg; g.fillRect(0, 0, W, H);
-    for (const r of this.rain) Font.draw(g, r.ch, r.x, r.y, r.v > 45 ? '#1D5C7A' : '#123C52');
-    // skyline de componentes
-    g.fillStyle = '#0B1C28';
-    for (let i = 0; i < 16; i++) { const h = 30 + ((i * 37) % 70); g.fillRect(i * 32, H - h, 28, h); }
-    g.fillStyle = '#102434'; g.fillRect(0, H - 22, W, 22);
-    // logo
-    const bob = Math.round(Math.sin(this.t * 1.5) * 2);
-    Font.draw(g, 'BYTE', 240, 30 + bob, '#0E5D6E', { align: 'center', s: 6 });
-    Font.draw(g, 'BYTE', 240, 27 + bob, PAL.cyan, { align: 'center', s: 6, hl: PAL.cyan });
-    if (!Settings.data.reduceFlash && Math.random() < 0.04) { const y = randi(30, 90); g.drawImage(g.canvas, 0, y, W, 3, randi(-6, 6), y, W, 3); }
-    Font.draw(g, 'ARCHITECT QUEST', 240, 104, PAL.white, { align: 'center', s: 2 });
-    Font.draw(g, 'ECOS DE LA MÁQUINA', 240, 128, PAL.violet, { align: 'center' });
+    // cielo del Boot Camp desplazándose despacio: ciudad de componentes llena de luces
+    const th = getTheme('boot'), bg = th.bg, BW = bg.w, t = this.t;
+    const off = f => { let o = -Math.round(t * f) % BW; if (o > 0) o -= BW; return o; };
+    for (let k = 0; k <= 1; k++) g.drawImage(bg.far, off(4) + k * BW, 0);
+    for (const st of bg.stars) { const a = 0.5 + 0.5 * Math.sin(t * 2.2 + st.ph); if (a < 0.6) continue; let x = st.x + off(4); if (x < 0) x += BW; g.globalAlpha = a; g.fillStyle = st.col; g.fillRect(x, st.y, 1, 1); }
+    g.globalAlpha = 1;
+    for (let k = 0; k <= 1; k++) g.drawImage(bg.mid, off(10) + k * BW, 0);
+    g.globalAlpha = 0.18; g.fillStyle = th.sky[1]; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+    // bits de colores que suben (sin texto: nunca pasan por detrás de las letras)
+    for (const r of this.rain) {
+      const y = H - ((r.y + t * r.v) % (H + 20));
+      const col = th.pal[(r.x * 7 | 0) % th.pal.length];
+      g.globalAlpha = 0.35; g.drawImage(glowSprite(col, 4), Math.round(r.x) - 4, Math.round(y) - 4);
+      g.globalAlpha = 0.9; g.fillStyle = col; g.fillRect(Math.round(r.x), Math.round(y), r.v > 45 ? 2 : 1, r.v > 45 ? 2 : 1);
+    }
+    g.globalAlpha = 1;
+    // suelo del Boot Camp con su borde brillante
+    for (let x = 0; x < W; x += 16) g.drawImage(th.atlas, 16, 0, 16, 16, x, H - 16, 16, 16);
+    // logo con sombra profunda, contorno y brillo que lo recorre
+    const bob = Math.round(Math.sin(t * 1.5) * 2);
+    const ly = 22 + bob;
+    Font.draw(g, 'BYTE', 240, ly + 5, '#16245A', { align: 'center', s: 6 });
+    Font.draw(g, 'BYTE', 240, ly + 3, '#2D4F9E', { align: 'center', s: 6 });
+    Font.draw(g, 'BYTE', 240, ly, PAL.cyan, { align: 'center', s: 6 });
+    // destello que recorre SÓLO las letras del logo cada pocos segundos
+    if (!this.logoFx) { this.logoFx = makeCanvas(W, 80); this.logoMask = makeCanvas(W, 80); Font.draw(this.logoMask.g, 'BYTE', 240, 4, '#FFFFFF', { align: 'center', s: 6 }); }
+    const sh = (t % 4) * 110 - 40;
+    if (sh < 200) {
+      const L = this.logoFx.g; L.globalCompositeOperation = 'source-over'; L.clearRect(0, 0, W, 80);
+      L.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let k = 0; k < 70; k++) L.fillRect(Math.round(160 + sh - k * 0.5), k, 5, 1);
+      L.globalCompositeOperation = 'destination-in';
+      L.drawImage(this.logoMask.c, 0, 0);
+      L.globalCompositeOperation = 'source-over';
+      g.drawImage(this.logoFx.c, 0, ly - 4);
+    }
+    for (let i = 0; i < 6; i++) { const a = t * 1.3 + i * 1.05, sx2 = 240 + Math.cos(a) * 110, sy2 = 50 + Math.sin(a * 1.7) * 26; if (Math.sin(t * 3 + i) > 0.2) { g.fillStyle = th.pal[i % th.pal.length]; g.fillRect(sx2 - 1, sy2, 3, 1); g.fillRect(sx2, sy2 - 1, 1, 3); } }
+    g.fillStyle = 'rgba(8,14,40,0.72)'; g.fillRect(118, 101, 244, 42);
+    Font.draw(g, 'ARCHITECT QUEST', 240, 104, '#16245A', { align: 'center', s: 2 });
+    Font.draw(g, 'ARCHITECT QUEST', 240, 102, PAL.white, { align: 'center', s: 2 });
+    Font.draw(g, 'ECOS DE LA MÁQUINA', 240, 127, '#FF9BE8', { align: 'center' });
     // NEXO y una silueta ambigua
-    const nx = 96, ny = 160 + Math.round(Math.sin(this.t * 2) * 3);
-    g.drawImage(Sprites.nexo.normal, nx, ny); drawNexoEyes(g, nx, ny, 'HAPPY', this.t, { x: 1, y: 0 }, false);
-    g.globalAlpha = 0.35 + 0.15 * Math.sin(this.t * 3);
-    g.drawImage(Sprites.null, 367, 162); drawNullEye(g, 367, 162, this.t);
+    const nx = 96, ny = 160 + Math.round(Math.sin(t * 2) * 3);
+    g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35; g.drawImage(glowSprite('#45E5FF', 22), nx + 8 - 22, ny + 9 - 22); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    g.drawImage(Sprites.nexo.normal, nx, ny); drawNexoEyes(g, nx, ny, 'HAPPY', t, { x: 1, y: 0 }, false);
+    g.globalAlpha = 0.35 + 0.15 * Math.sin(t * 3);
+    g.drawImage(Sprites.null, 367, 162); drawNullEye(g, 367, 162, t);
     g.globalAlpha = 1;
     this.rects = [];
+    g.fillStyle = 'rgba(8,14,40,0.78)'; g.fillRect(162, 145, 156, this.items().length * 20 + 8);
     this.items().forEach((it, i) => {
       const y = 150 + i * 20;
       UI.button(g, 170, y, 140, 16, it.label, i === this.sel, { disabled: it.disabled });
       this.rects.push({ x: 170, y, w: 140, h: 16 });
     });
-    Font.draw(g, 'Un videojuego sobre cómo cooperan las partes de una computadora.', 240, 238, PAL.gray, { align: 'center' });
-    Font.draw(g, 'v1.0 · HTML5 + Canvas · sin conexión', 240, 252, PAL.grayD, { align: 'center' });
+    g.fillStyle = 'rgba(8,14,40,0.8)'; g.fillRect(0, 234, W, 36);
+    Font.draw(g, 'Un videojuego sobre cómo cooperan las partes de una computadora.', 240, 237, PAL.grayL, { align: 'center' });
+    Font.draw(g, 'v1.1 · HTML5 + Canvas · sin conexión', 240, 251, PAL.gray, { align: 'center' });
   }
 }
 

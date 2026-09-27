@@ -41,7 +41,7 @@ node tools/build.js          # src/*.js + src/shell.html → byte_architect_ques
 | Moverse | ← → / A D | Stick izq. / cruceta |
 | Subir / bajar escaleras, atravesar plataformas (↓ + salto) | ↑ ↓ / W S | Stick / cruceta |
 | Saltar (mantener = más alto) | Espacio | A |
-| Interactuar / tomar y colocar bloques | E | Y |
+| Interactuar / tomar y colocar bloques / conectar nodos de CIRCUIT LINK y BUS BRIDGE | E | Y |
 | Ataque **Debug Ping** | J / X | X |
 | Usar habilidad seleccionada | Q | RT / LT |
 | Cambiar habilidad | Tab / R (o 1–8) | RB / LB |
@@ -108,11 +108,28 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
 
 ### Presentación y accesibilidad
 - Resolución interna 480×270 escalada sin suavizado, fuente pixel propia con tildes y símbolos,
-  sprites y retratos procedurales con emociones, 10 temas de tiles y fondos con parallax.
+  sprites y retratos procedurales con emociones.
+- **10 regiones con paleta propia, viva y alegre**: cielos en degradado pixelado con estrellas que
+  titilan, nubes, sol/luna/planetas y resplandor de horizonte; tres capas de parallax (ciudades de
+  componentes con ventanas de colores, engranajes, forjas, torres de memoria, autopistas de neón,
+  distritos festivos, laboratorios, archivos y el núcleo cósmico) con pulsos que recorren los
+  circuitos y «pájaros de datos»; bruma atmosférica que separa el fondo del juego.
+- Tiles con borde brillante, esquinas redondeadas, componentes (pistas, chips, resistencias, LEDs),
+  sombreado por profundidad y «brotes» en los bordes (musgo y flores, cristales, brasas…).
+- Atrezo automático sobre el suelo, distinto en cada región (condensadores, conos, engranajes,
+  braseros, libros y cristales, semáforos, altavoces y antenas, matraces y plantas, CRT y velas…),
+  sin tapar nunca objetos interactivos.
+- Luces aditivas en terminales, checkpoints, fragmentos, salidas, nodos, lámparas, enemigos, NEXO
+  y BYTE, y partículas ambientales flotando en cada escena. Pantalla de título y laboratorio del
+  prólogo rediseñados con más color.
 - Música procedural (15 temas, con el motivo de NEXO y su versión invertida para NULL) y efectos de sonido sintetizados.
 - Ajustes: volúmenes, velocidad de texto, **subtítulos de sonidos**, alto contraste, reducir
   parpadeos y vibración de cámara, scanlines, **modo asistido**, dificultad educativa, FPS,
   reasignación de teclas y controles táctiles.
+- **Lectura tranquila**: mientras hay un diálogo, registro, desafío o escena en pantalla, los enemigos
+  y sus disparos se detienen y nada hace daño; al cerrar el texto hay un instante de gracia.
+- **Sin texto encima de texto**: las etiquetas del mundo se recolocan solas, los avisos esperan a que
+  se cierren los menús y todos los paneles tienen filas fijas (verificado con `tools/overlap.js`).
 
 ---
 
@@ -159,6 +176,8 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `challenges.js` | Los 728 casos (desafíos, generadores y variantes): render, pistas, reinicio y que la solución guiada sea correcta |
 | `smoke.js` | Recorrido con teclado real: título → prólogo → nivel → terminal → pausa y submenús → CONTINUE → modo docente |
 | `playtest.js` | Bot que juega la historia completa (niveles 00–09, jefe, epílogo, informe y posjuego): en modo estricto sólo actúa sobre lo alcanzable desde donde está el jugador, combate con la contramedida prevista de cada enemigo, comprueba las rutas cargando bloques y hace un barrido final de accesibilidad por nivel |
+| `overlap.js` | Detector de texto superpuesto: registra cada texto dibujado (ignorando lo tapado por paneles) en menús, desafíos, diálogos, cinemáticas y un barrido de cámara por todos los niveles |
+| `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma y control durante el escudo del jefe |
 | `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red |
 
 ---

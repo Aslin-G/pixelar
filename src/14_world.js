@@ -108,6 +108,9 @@ class World {
     this.cam.snap(this.player);
     if (def.onLoad) def.onLoad(this, !!cp);
     this.entities.forEach(e => e.init && e.init(this));
+    this.depthDirty = true;
+    this.placeProps();
+    this.initAmbient();
     const key = 'L' + def.id + '_entered';
     if (!cp && def.intro && !PROG.flags[key]) { PROG.flags[key] = true; this.run(def.intro, 'intro'); }
     PROG.flags[key] = true;
@@ -173,7 +176,7 @@ class World {
     if (ty < 0 || ty >= this.h) return T.AIR;
     return this.tiles[ty * this.w + tx];
   }
-  setTile(tx, ty, t) { if (tx >= 0 && ty >= 0 && tx < this.w && ty < this.h) this.tiles[ty * this.w + tx] = t; }
+  setTile(tx, ty, t) { if (tx >= 0 && ty >= 0 && tx < this.w && ty < this.h && this.tiles[ty * this.w + tx] !== t) { this.tiles[ty * this.w + tx] = t; this.depthDirty = true; } }
   solidAt(px, py) { return isSolidT(this.tile(Math.floor(px / TS), Math.floor(py / TS))); }
   rectSolid(x, y, w, h) {
     const x0 = Math.floor(x / TS), x1 = Math.floor((x + w - 0.01) / TS), y0 = Math.floor(y / TS), y1 = Math.floor((y + h - 0.01) / TS);
@@ -481,26 +484,22 @@ class World {
     let sx = 0, sy = 0;
     if (this.shakeT > 0) { sx = Math.round(rand(-1, 1) * this.shakeMag); sy = Math.round(rand(-1, 1) * this.shakeMag); }
     const cx = Math.round(this.cam.x), cy = Math.round(this.cam.y);
-    // fondo
-    const bg = th.bg;
-    const fx = -Math.round(cx * 0.15) % bg.w, mx = -Math.round(cx * 0.4) % bg.w;
-    const fy = -Math.round(cy * 0.08) % H, my = -Math.round(cy * 0.2) % H;
-    const tall = this.h * TS > H + 40;
-    for (let k = 0; k <= 1; k++) g.drawImage(bg.far, fx + k * bg.w + sx, sy);
-    for (let k = 0; k <= 1; k++) for (let j = tall ? 0 : 1; j <= 1; j++) {
-      g.drawImage(bg.mid, mx + k * bg.w + sx, (tall ? my + j * H : 0) + sy);
-    }
+    // fondo: cielo+lejos, medio y cerca (parallax), con estrellas y pulsos animados
+    this.renderBackdrop(g, cx, cy, sx, sy);
     if (this.def.renderBg) this.def.renderBg(g, this, cx, cy);
+    this.renderMotes(g, cx, cy);
     g.save();
     g.translate(-cx + sx, -cy + sy);
     for (const e of this.entities) if (e.layer === 0 && this.visible(e)) e.render(g, this);
     if (this.def.renderBack) this.def.renderBack(g, this);
     this.renderTiles(g, cx, cy);
+    this.renderProps(g, cx, cy);
     for (const e of this.entities) if (e.layer === 1 && this.visible(e)) e.render(g, this);
     for (const e of this.entities) if ((e.layer === 2 || e.layer == null) && this.visible(e)) e.render(g, this);
     this.player.render(g, this);
     this.nexo.render(g, this);
     for (const e of this.entities) if (e.layer === 3 && this.visible(e)) e.render(g, this);
+    this.renderGlows(g, cx, cy);
     this.flushLabels(g);
     for (const pr of this.projectiles) pr.render(g, this);
     this.particles.render(g, cx, cy);
@@ -531,8 +530,145 @@ class World {
     L.length = 0;
   }
   visible(e) { const c = this.cam; return e.x + (e.w || 16) + 40 > c.x && e.x - 40 < c.x + W && e.y + (e.h || 16) + 60 > c.y && e.y - 60 < c.y + H; }
+  // ---------- decoración ----------
+  computeDepth() {
+    const w = this.w, h = this.h, D = this.depth = this.depth || new Uint8Array(w * h);
+    const solid = i => { const t = this.tiles[i]; return t === T.SOLID; };
+    const q = [];
+    for (let i = 0; i < w * h; i++) {
+      if (!solid(i)) { D[i] = 0; continue; }
+      const x = i % w, y = (i / w) | 0;
+      const open = (xx, yy) => xx >= 0 && yy >= 0 && xx < w && yy < h && !solid(yy * w + xx);
+      if (open(x, y - 1) || open(x + 1, y) || open(x, y + 1) || open(x - 1, y)) { D[i] = 0; q.push(i); } else D[i] = 9;
+    }
+    while (q.length) {
+      const i = q.shift(), x = i % w, y = (i / w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        const j = yy * w + xx; if (D[j] > D[i] + 1) { D[j] = D[i] + 1; q.push(j); }
+      }
+    }
+    this.depthDirty = false;
+  }
+  placeProps() {
+    const th = this.theme, set = th.propSet, list = (th.props || []).filter(n => set[n]);
+    this.props = [];
+    if (!list.length) return;
+    const blocked = this.entities.filter(e => !['trigger', 'heat', 'bridge', 'collapse', 'platform'].includes(e.kind)).map(e => ({ x: e.x - 14, y: e.y - 8, w: (e.w || 16) + 28, h: (e.h || 16) + 16 }));
+    blocked.push({ x: this.spawn.x - 28, y: this.spawn.y - 20, w: 64, h: 40 });
+    const density = this.def.propDensity != null ? this.def.propDensity : 0.27;
+    for (let y = 1; y < this.h - 1; y++) for (let x = 1; x < this.w - 1; x++) {
+      const here = this.tile(x, y), below = this.tile(x, y + 1);
+      if (here !== T.AIR || !(below === T.SOLID || below === T.ONEWAY)) continue;
+      if (hash2(x * 7 + 3, y * 13 + 5) > density) continue;
+      if ([this.tile(x - 1, y + 1), this.tile(x + 1, y + 1), this.tile(x - 1, y), this.tile(x + 1, y)].some(t => t === T.SPIKE || t === T.POOL)) continue;
+      const name = list[Math.floor(hash2(x * 31, y * 17) * list.length)], pr = set[name];
+      const pw = pr.frames[0].width, ph = pr.frames[0].height;
+      const px = x * TS + Math.round((TS - pw) / 2), py = (y + 1) * TS - ph + 1;
+      if (ph > 18 && this.tile(x, y - 1) !== T.AIR) continue;
+      if (blocked.some(b => px < b.x + b.w && px + pw > b.x && py < b.y + b.h && py + ph > b.y)) continue;
+      if (this.props.some(o => Math.abs(o.x - px) < 14 && Math.abs(o.y - py) < 16)) continue;
+      this.props.push({ x: px, y: py, w: pw, h: ph, pr, seed: hash2(x, y) * 10 });
+    }
+  }
+  renderProps(g, cx, cy) {
+    for (const o of this.props) {
+      if (o.x + o.w < cx - 4 || o.x > cx + W + 4 || o.y + o.h < cy - 4 || o.y > cy + H + 4) continue;
+      const fr = o.pr.frames, f = fr.length > 1 ? Math.floor(this.t * o.pr.fps + o.seed) % fr.length : 0;
+      g.drawImage(fr[f], o.x, o.y);
+    }
+  }
+  initAmbient() {
+    const th = this.theme, rng = mulberry32(this.index * 97 + 13);
+    this.motes = [];
+    const n = Game.lowFx ? 14 : 34;
+    for (let i = 0; i < n; i++) this.motes.push({ x: rng() * W, y: rng() * H, vx: (rng() - 0.5) * 6, vy: -3 - rng() * 7, ph: rng() * 6.28, col: th.pal[i % th.pal.length], d: 0.35 + rng() * 0.5 });
+    this.lastRenderT = this.t;
+  }
+  renderBackdrop(g, cx, cy, sx, sy) {
+    const bg = this.theme.bg, BW = bg.w;
+    const tall = this.h * TS > H + 40;
+    const off = (f) => { let o = -Math.round(cx * f) % BW; if (o > 0) o -= BW; return o; };
+    const fx = off(0.12), mx = off(0.35), nx = off(0.62);
+    const fy = tall ? 0 : -Math.round(Math.max(0, cy) * 0.05);
+    for (let k = 0; k <= 1; k++) g.drawImage(bg.far, fx + k * BW + sx, fy + sy);
+    // estrellas que titilan
+    const t = this.t;
+    if (!Settings.data.reduceFlash) for (const st of bg.stars) {
+      const a = 0.5 + 0.5 * Math.sin(t * 2.2 + st.ph);
+      if (a < 0.55) continue;
+      let x = st.x + fx; if (x < -2) x += BW; if (x < -2 || x > W + 2) continue;
+      g.globalAlpha = (a - 0.5) * 1.6; g.fillStyle = st.col; g.fillRect(x + sx, st.y + fy + sy, 1, 1);
+      if (st.big) { g.fillRect(x - 1 + sx, st.y + fy + sy, 3, 1); g.fillRect(x + sx, st.y - 1 + fy + sy, 1, 3); }
+    }
+    g.globalAlpha = 1;
+    // pájaros de datos cruzando el cielo (regiones al aire libre)
+    if (!tall && !['core', 'kernel', 'tower'].includes(this.theme.key) && !Settings.data.reduceFlash) {
+      for (let i = 0; i < 4; i++) {
+        const per = 26 + i * 7, ph = (t + i * 9.3) % per;
+        if (ph > 14) continue;
+        const bx = Math.round(-20 + ph / 14 * (W + 40)), by = 40 + i * 17 + Math.round(Math.sin(t * 2 + i) * 4) + fy;
+        const flap = Math.floor(t * 8 + i) % 2, col = this.theme.pal[i % this.theme.pal.length];
+        g.fillStyle = mix(col, this.theme.sky[1], 0.3);
+        g.fillRect(bx, by, 1, 1); g.fillRect(bx - 2, by - 1 + flap, 2, 1); g.fillRect(bx + 1, by - 1 + flap, 2, 1);
+        if (!flap) { g.fillRect(bx - 3, by - 2, 1, 1); g.fillRect(bx + 3, by - 2, 1, 1); }
+      }
+    }
+    const midY = tall ? -Math.round(cy * 0.2) % H : -Math.round(Math.max(0, cy) * 0.12);
+    const nearY = tall ? -Math.round(cy * 0.45) % H : -Math.round(Math.max(0, cy) * 0.3) + 18;
+    for (let k = 0; k <= 1; k++) for (let j = tall ? 0 : 1; j <= 1; j++) g.drawImage(bg.mid, mx + k * BW + sx, (tall ? midY + j * H : midY) + sy);
+    // pulsos que recorren las pistas del fondo
+    for (let i = 0; i < bg.traces.length; i++) {
+      const tr = bg.traces[i], len = tr.x1 - tr.x0; if (len < 10) continue;
+      const lo = tr.layer === 'far' ? fx : mx, ly = tr.layer === 'far' ? fy : (tall ? midY : midY);
+      for (let k = 0; k < (tr.fast ? 3 : 2); k++) {
+        const p = ((t * (tr.fast ? 60 : 34) + k * len / (tr.fast ? 3 : 2) + i * 37) % len);
+        let x = tr.x0 + p + lo; while (x < -4) x += BW; while (x > W + 4) x -= BW;
+        g.fillStyle = tr.col; g.fillRect(Math.round(x) + sx - 1, tr.y + ly + sy - 1, 3, 2);
+        g.globalAlpha = 0.5; g.fillRect(Math.round(x) + sx - 4, tr.y + ly + sy - 1, 3, 2); g.globalAlpha = 1;
+      }
+    }
+    g.globalAlpha = 0.9;
+    for (let k = 0; k <= 1; k++) for (let j = tall ? 0 : 1; j <= 1; j++) g.drawImage(bg.near, nx + k * BW + sx, (tall ? nearY + j * H : nearY) + sy);
+    // bruma atmosférica: empuja el fondo hacia atrás para que el juego se lea mejor
+    const th = this.theme;
+    g.globalAlpha = th.haze || 0.18; g.fillStyle = th.sky[1]; g.fillRect(0, 0, W, H);
+    g.globalAlpha = 1;
+  }
+  renderMotes(g, cx, cy) {
+    if (!this.motes || Settings.data.reduceFlash) return;
+    const dt = Math.min(0.1, Math.max(0, this.t - (this.lastRenderT || this.t))); this.lastRenderT = this.t;
+    const pcx = this.prevCx == null ? cx : this.prevCx, pcy = this.prevCy == null ? cy : this.prevCy; this.prevCx = cx; this.prevCy = cy;
+    for (const m of this.motes) {
+      m.x += m.vx * dt - (cx - pcx) * m.d; m.y += m.vy * dt - (cy - pcy) * m.d;
+      m.x = ((m.x % W) + W) % W; m.y = ((m.y % H) + H) % H;
+      const a = 0.45 + 0.35 * Math.sin(this.t * 2 + m.ph);
+      const x = Math.round(m.x + Math.sin(this.t * 0.8 + m.ph) * 3), y = Math.round(m.y);
+      g.globalAlpha = a * 0.35; g.drawImage(glowSprite(m.col, 4), x - 4, y - 4);
+      g.globalAlpha = a; g.fillStyle = m.col; g.fillRect(x, y, 1, 1);
+    }
+    g.globalAlpha = 1;
+  }
+  // luces aditivas de objetos, atrezo, jugador y NEXO
+  renderGlows(g, cx, cy) {
+    if (Game.lowFx) return;
+    const k = Settings.data.contrast ? 0.5 : 1;
+    g.globalCompositeOperation = 'lighter';
+    const L = (x, y, r, col, a) => { if (x + r < cx || x - r > cx + W || y + r < cy || y - r > cy + H) return; g.globalAlpha = a * k; g.drawImage(glowSprite(col, r), Math.round(x - r), Math.round(y - r)); };
+    for (const e of this.entities) {
+      if (e.dead || !e.glow) continue;
+      const gl = e.glow(this); if (!gl) continue;
+      L(gl[0], gl[1], gl[2], gl[3], gl[4] == null ? 0.35 : gl[4]);
+    }
+    for (const o of this.props) if (o.pr.glow) L(o.x + o.w / 2, o.y + 4, o.pr.gr || 12, o.pr.glow, 0.3 + 0.08 * Math.sin(this.t * 3 + o.seed));
+    const p = this.player; if (!p.dead) L(p.x + p.w / 2, p.y + 5, 14, '#7FF3FF', 0.16);
+    if (this.nexo && !this.nexo.hidden) L(this.nexo.x + 8, this.nexo.y + 9, 18, PROG.flags.nexusBorn ? '#FFD166' : '#45E5FF', 0.3 * (this.nexo.alpha == null ? 1 : this.nexo.alpha));
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  }
   renderTiles(g, cx, cy) {
-    const at = this.theme.atlas;
+    const at = this.theme.atlas, tu = this.theme.tufts;
+    if (this.depthDirty || !this.depth) this.computeDepth();
+    const D = this.depth, tfr = Math.floor(this.t * 2) % 2;
     const x0 = Math.max(0, Math.floor(cx / TS) - 1), x1 = Math.min(this.w - 1, Math.floor((cx + W) / TS) + 1);
     const y0 = Math.max(0, Math.floor(cy / TS) - 1), y1 = Math.min(this.h - 1, Math.floor((cy + H) / TS) + 1);
     const tf = Math.floor(this.t * 3) % 2;
@@ -547,24 +683,28 @@ class World {
         if (open([tx + 1, ty]) && tx + 1 < this.w) m |= 2;
         if (ty + 1 < this.h && open([tx, ty + 1])) m |= 4;
         if (open([tx - 1, ty]) && tx > 0) m |= 8;
-        const v = Math.floor(hash2(tx, ty) * 4);
-        g.drawImage(at, m * 16, v * 16, 16, 16, dx, dy, 16, 16);
-      } else if (t === T.ONEWAY) g.drawImage(at, 0, 64, 16, 16, dx, dy, 16, 16);
-      else if (t === T.SPIKE) g.drawImage(at, 16, 64, 16, 16, dx, dy, 16, 16);
-      else if (t === T.POOL) g.drawImage(at, 32 + tf * 16, 64, 16, 16, dx, dy, 16, 16);
-      else if (t === T.LADDER) g.drawImage(at, 64, 64, 16, 16, dx, dy, 16, 16);
-      else if (t === T.BREAK) g.drawImage(at, 80 + tf * 16, 64, 16, 16, dx, dy, 16, 16);
-      else if (t === T.BRIDGE) { g.globalAlpha = 0.75 + 0.25 * Math.sin(this.t * 10 + tx); g.drawImage(at, 112, 64, 16, 16, dx, dy, 16, 16); g.globalAlpha = 1; }
+        const hh = hash2(tx, ty), v = Math.floor(hh * 4), dep = D[ty * this.w + tx];
+        if (m === 0 && dep >= 1) g.drawImage(at, 0, (4 * Math.min(2, dep) + v) * 16, 16, 16, dx, dy, 16, 16);
+        else g.drawImage(at, m * 16, v * 16, 16, 16, dx, dy, 16, 16);
+        // brotes decorativos sobre el borde superior
+        if ((m & 1) && ty > 0 && this.tiles[(ty - 1) * this.w + tx] === T.AIR && hh < 0.55) g.drawImage(tu, Math.floor(hash2(ty, tx) * 8) * 16, ((tfr + (tx & 1)) % 2) * 8, 16, 8, dx, dy - 7, 16, 8);
+      } else if (t === T.ONEWAY) g.drawImage(at, 0, 192, 16, 16, dx, dy, 16, 16);
+      else if (t === T.SPIKE) g.drawImage(at, 16, 192, 16, 16, dx, dy, 16, 16);
+      else if (t === T.POOL) g.drawImage(at, 32 + tf * 16, 192, 16, 16, dx, dy, 16, 16);
+      else if (t === T.LADDER) g.drawImage(at, 64, 192, 16, 16, dx, dy, 16, 16);
+      else if (t === T.BREAK) g.drawImage(at, 80 + tf * 16, 192, 16, 16, dx, dy, 16, 16);
+      else if (t === T.BRIDGE) { g.globalAlpha = 0.75 + 0.25 * Math.sin(this.t * 10 + tx); g.drawImage(at, 112, 192, 16, 16, dx, dy, 16, 16); g.globalAlpha = 1; }
     }
   }
   renderMood(g) {
     const mode = this.tintMode;
     if (mode === 'cold') {
-      g.globalCompositeOperation = 'multiply'; g.fillStyle = '#9FB4D8'; g.fillRect(0, 0, W, H);
-      g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(0,4,16,0.18)'; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'saturation'; g.globalAlpha = 0.28; g.fillStyle = '#808080'; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.45; g.fillStyle = '#5A7CFF'; g.fillRect(0, 0, W, H);
+      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     } else if (mode === 'desat') {
-      g.globalCompositeOperation = 'saturation'; g.globalAlpha = 0.75; g.fillStyle = '#808080'; g.fillRect(0, 0, W, H);
-      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(10,8,4,0.12)'; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'saturation'; g.globalAlpha = 0.42; g.fillStyle = '#808080'; g.fillRect(0, 0, W, H);
+      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(40,24,8,0.06)'; g.fillRect(0, 0, W, H);
     } else if (mode === 'warm') {
       g.globalCompositeOperation = 'soft-light'; g.fillStyle = '#FFD9A0'; g.globalAlpha = 0.35; g.fillRect(0, 0, W, H);
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
@@ -575,7 +715,7 @@ class World {
       // oscuridad con halo alrededor del jugador
       const p = this.player, px = Math.round(p.x + p.w / 2 - this.cam.x), py = Math.round(p.y + p.h / 2 - this.cam.y);
       g.fillStyle = 'rgba(0,0,6,' + this.darkness + ')';
-      const r = 70;
+      const r = 92;
       g.fillRect(0, 0, W, Math.max(0, py - r)); g.fillRect(0, py + r, W, H);
       g.fillRect(0, py - r, Math.max(0, px - r), r * 2); g.fillRect(px + r, py - r, W, r * 2);
       for (let k = 0; k < r; k += 4) {

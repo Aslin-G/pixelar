@@ -388,7 +388,7 @@ const L8_OLD = { id: 'L8_old', concept: 'fetchDecodeExecute', difficulty: 2, typ
   data: { visual: 'table', table: { cols: ['OPCODE', 'INSTRUCCIÓN'], rows: [['0001', 'LOAD'], ['0010', 'ADD'], ['0011', 'STORE'], ['0100', 'JUMP']] }, options: [O('JUMP 0x000: salta al inicio del programa y vuelve a empezar.', 1), O('LOAD: carga un cero en un registro.', 0, 'LOAD es 0001.'), O('ADD: suma cero.', 0, 'ADD es 0010.'), O('Nada: es una instrucción vacía.', 0, 'El opcode 0100 no está vacío: es JUMP.')] },
   hl: [3], explanation: 'Volver al principio: a veces reiniciar la búsqueda desde cero es la única forma de entender.', hints: ['Mira sólo los cuatro primeros bits.', 'Busca la fila resaltada.', 'Descarto dos opciones.'] };
 const LEVEL8 = {
-  id: 8, key: 'kernel', name: 'KERNEL PERDIDO', theme: 'kernel', music: 'kernel', concepts: ['bottlenecks', 'performance'], tint: 'desat', darkness: 0.35,
+  id: 8, key: 'kernel', name: 'KERNEL PERDIDO', theme: 'kernel', music: 'kernel', concepts: ['bottlenecks', 'performance'], tint: 'desat', darkness: 0.24,
   reward: 'Habilidad: REGISTER RECALL', exit: { needs: 'L8_rescued', onEnter: function* (W) { W.quest('m8', 'done'); } },
   fragments: ['f16', 'f17'],
   map: joinSecs(

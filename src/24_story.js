@@ -11,36 +11,59 @@ function drawNexoBig(g, x, y, emo, t, s = 2, which = 'nexo') {
 }
 function drawLab(g, st, t) {
   const day = st.day;
-  g.fillStyle = day ? '#1E2A3A' : '#0B1622'; g.fillRect(0, 0, W, H);
-  // ventana
-  g.fillStyle = '#2A343C'; g.fillRect(26, 26, 132, 92);
-  const sky = day ? ['#6FA8DC', '#8FBCE6', '#B7D6F0'] : ['#050C18', '#081428', '#0A1830'];
-  sky.forEach((c, i) => { g.fillStyle = c; g.fillRect(30, 30 + i * 28, 124, 28); });
-  if (!day) for (let i = 0; i < 14; i++) { g.fillStyle = (Math.floor(t * 2 + i) % 5) ? '#E8F4F7' : '#6F7C86'; g.fillRect(30 + (i * 37) % 124, 32 + (i * 23) % 40, 1, 1); }
-  else { g.fillStyle = '#FFE9A8'; g.fillRect(126, 38, 10, 10); }
-  g.fillStyle = day ? '#4A6278' : '#0E1A26';
-  for (let i = 0; i < 9; i++) { const h = 18 + (i * 29) % 30; g.fillRect(30 + i * 14, 114 - h, 12, h); }
-  if (!day) for (let i = 0; i < 12; i++) { g.fillStyle = '#F1B45C'; g.fillRect(33 + (i * 11) % 120, 100 - (i * 7) % 20, 1, 1); }
-  g.fillStyle = '#2A343C'; g.fillRect(90, 26, 4, 92); g.fillRect(26, 70, 132, 3);
-  // estantería y pizarra
-  g.fillStyle = '#1A2530'; g.fillRect(186, 30, 70, 60);
-  g.fillStyle = '#E8F4F7'; Font.draw(g, 'CPU→RAM', 192, 36, '#6F7C86'); Font.draw(g, 'BUS?', 200, 52, '#6F7C86'); Font.draw(g, 'DEMO 9:30', 192, 68, day ? PAL.amber : '#6F7C86');
-  // suelo y escritorio
-  g.fillStyle = day ? '#243140' : '#08121A'; g.fillRect(0, 232, W, 38);
-  g.fillStyle = '#3A2E26'; g.fillRect(250, 196, 210, 8); g.fillRect(258, 204, 6, 28); g.fillRect(446, 204, 6, 28);
-  // monitor
-  g.fillStyle = '#2A343C'; g.fillRect(292, 104, 128, 88); g.fillRect(348, 192, 16, 5);
-  g.fillStyle = st.alarm && Math.floor(t * 6) % 2 ? '#200408' : '#03080A'; g.fillRect(296, 108, 120, 78);
+  const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
+  // pared con papel pintado a rayas y zócalo
+  R(0, 0, W, H, day ? '#4E6CA8' : '#1E1B48');
+  for (let x = 0; x < W; x += 12) R(x, 0, 6, 200, day ? '#5676B2' : '#231F52');
+  R(0, 196, W, 4, day ? '#3A5288' : '#161338');
+  // guirnalda de luces de colores
+  const bulbs = ['#FF6FA8', '#FFD166', '#71FF9A', '#45E5FF', '#C79BFF'];
+  for (let x = 0; x < W; x++) { const y = 10 + Math.round(Math.sin(x / W * Math.PI * 3) * 5 + 5); R(x, y, 1, 1, '#2A2440'); if (x % 22 === 11) { const on = (Math.floor(t * 2) + x) % 3 !== 0; R(x - 1, y + 1, 3, 3, on ? bulbs[(x / 22 | 0) % 5] : '#3A3450'); if (on) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35; g.drawImage(glowSprite(bulbs[(x / 22 | 0) % 5], 7), x - 7, y - 4); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; } } }
+  // ventana: ciudad de noche llena de luces, o cielo azul de día
+  R(24, 30, 136, 94, '#6A4A34'); R(26, 32, 132, 90, '#3A2A22');
+  const skyC = day ? ['#5FA8E8', '#7FC0F0', '#A8D8F8'] : ['#0C0A2E', '#1C1450', '#3A2270'];
+  skyC.forEach((c, i) => R(28, 34 + i * 29, 128, 29, c));
+  if (day) { R(128, 42, 12, 12, '#FFE9A8'); R(130, 40, 8, 16, '#FFE9A8'); R(40, 50, 30, 6, '#FFFFFF'); R(44, 46, 20, 6, '#FFFFFF'); R(96, 60, 24, 5, '#F0F8FF'); }
+  else { for (let i = 0; i < 18; i++) R(28 + (i * 37) % 128, 36 + (i * 23) % 44, 1, 1, (Math.floor(t * 2 + i) % 5) ? '#FFFFFF' : '#8A8AB0'); const disc = (cx, cy, r, c) => { for (let y = -r; y <= r; y++) { const w = Math.floor(Math.sqrt(r * r - y * y)); R(cx - w, cy + y, w * 2 + 1, 1, c); } }; disc(138, 48, 6, '#FFF0C8'); disc(141, 46, 5, skyC[0]); }
+  const bcol = day ? ['#6A88B8', '#5A78A8', '#7A98C8'] : ['#2A2060', '#34287A', '#221A50'];
+  for (let i = 0; i < 9; i++) { const h = 20 + (i * 29) % 34; R(28 + i * 14, 120 - h, 12, h, bcol[i % 3]); for (let k = 0; k < 6; k++) if ((i * 7 + k * 3) % 4) R(30 + i * 14 + (k % 2) * 5, 124 - h + Math.floor(k / 2) * 6, 2, 2, day ? '#DDEEFF' : bulbs[(i + k) % 5]); }
+  R(90, 32, 4, 90, '#6A4A34'); R(26, 76, 132, 3, '#6A4A34');
+  R(20, 122, 144, 5, '#8A6244'); R(20, 122, 144, 1, '#B08058');
+  // corcho con notas de colores (cada texto en su propia nota)
+  R(176, 28, 96, 72, '#A8703E'); R(178, 30, 92, 68, '#C88A4E');
+  const notes = [['CPU→RAM', '#FFE36E', 182, 36], ['BUS?', '#FF9BC8', 236, 36], ['DEMO 9:30', day ? '#FFB45C' : '#9DFFB0', 190, 66]];
+  for (const [txt, col, nx, ny] of notes) { const w = Font.measure(txt) + 10; R(nx + 1, ny + 1, w, 18, 'rgba(0,0,0,0.25)'); R(nx, ny, w, 18, col); R(nx + w / 2 - 1, ny - 1, 3, 3, '#FF4F6A'); Font.draw(g, txt, nx + 5, ny + 4, '#2A1E3A'); }
+  // póster de un chip
+  R(282, 30, 44, 56, '#FFFFFF'); R(284, 32, 40, 52, '#2E86B0'); R(294, 44, 20, 20, '#1A2230'); for (let i = 0; i < 4; i++) { R(296 + i * 5, 40, 2, 4, '#FFD166'); R(296 + i * 5, 64, 2, 4, '#FFD166'); R(290, 46 + i * 5, 4, 2, '#FFD166'); R(314, 46 + i * 5, 4, 2, '#FFD166'); } R(300, 50, 8, 8, '#45E5FF'); R(288, 74, 32, 3, '#FFD166');
+  // estante con libros, planta y un robotito
+  R(336, 56, 110, 4, '#8A6244'); R(336, 60, 110, 2, '#5A3E2A');
+  const books = ['#FF6FA8', '#FFD166', '#45E5FF', '#71FF9A', '#C79BFF', '#FF9F4A', '#FFFFFF'];
+  for (let i = 0; i < 9; i++) { const h = 14 + (i * 5) % 8; R(340 + i * 6, 56 - h, 5, h, books[i % books.length]); R(340 + i * 6, 56 - h + 3, 5, 1, 'rgba(0,0,0,0.25)'); }
+  R(404, 44, 12, 12, '#D0704A'); R(406, 36, 3, 8, '#3FAF6A'); R(401, 38, 6, 4, '#4FC87A'); R(409, 34, 6, 4, '#6FE89A');
+  R(424, 44, 12, 12, '#A9B6BE'); R(426, 47, 3, 3, '#45E5FF'); R(431, 47, 3, 3, '#45E5FF'); R(429, 40, 2, 4, '#A9B6BE');
+  // suelo de madera
+  R(0, 200, W, 70, day ? '#9A6A44' : '#4A3040');
+  for (let y = 206; y < H; y += 8) { R(0, y, W, 1, day ? '#845A38' : '#3C2634'); for (let x = (y * 7) % 60; x < W; x += 60) R(x, y - 7, 1, 7, day ? '#845A38' : '#3C2634'); }
+  // escritorio
+  R(250, 196, 210, 8, '#B07A48'); R(250, 196, 210, 2, '#D8A870'); R(258, 204, 6, 28, '#8A5A34'); R(446, 204, 6, 28, '#8A5A34');
+  // taza humeante y papeles
+  R(440, 184, 10, 12, '#FF6FA8'); R(450, 187, 3, 5, '#FF6FA8'); R(442, 186, 6, 2, '#6A3A2A');
+  for (let k = 0; k < 3; k++) { const yy = 176 - ((t * 12 + k * 5) % 14); g.globalAlpha = 0.5; R(443 + k * 2 + Math.round(Math.sin(t * 3 + k) * 1), Math.round(yy), 1, 3, '#FFFFFF'); g.globalAlpha = 1; }
+  R(262, 190, 26, 6, '#F4F4F4'); R(264, 188, 24, 2, '#FFFFFF'); R(266, 192, 16, 1, '#A9B6BE');
+  // monitor con marco de color y su luz
+  R(292, 104, 128, 88, '#3A3E6A'); R(292, 104, 128, 2, '#6A6ED0'); R(348, 192, 16, 5, '#3A3E6A');
+  R(296, 108, 120, 78, st.alarm && Math.floor(t * 6) % 2 ? '#200408' : '#03080A');
+  g.globalCompositeOperation = 'lighter'; g.globalAlpha = st.alarm ? 0.3 : 0.14; g.drawImage(glowSprite(st.alarm ? '#FF5F6A' : '#45E5FF', 70), 356 - 70, 146 - 70); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   // las líneas largas se parten para no salirse de la pantalla del monitor
   const lines = (st.monitor || []).flatMap(l => (l ? UI.wrap(l, 112).map((w, k) => (k ? '  ' + w : w)) : ['']));
   const typed = st.typing != null ? UI.wrap('> ' + st.typing + (Math.floor(t * 3) % 2 ? '█' : ''), 112) : [];
   const shown = lines.slice(-Math.max(0, 6 - typed.length));
   shown.forEach((l, i) => Font.draw(g, l, 300, 110 + i * 12, st.monCol || PAL.green));
   typed.forEach((l, i) => Font.draw(g, l, 300, 110 + (shown.length + i) * 12, PAL.white));
-  // teclado y lámpara
-  g.fillStyle = '#6F7C86'; g.fillRect(310, 192, 60, 4);
-  g.fillStyle = '#3A444C'; g.fillRect(430, 150, 4, 46); g.fillRect(420, 144, 22, 8);
-  g.fillStyle = day ? 'rgba(255,233,168,0.05)' : 'rgba(241,180,92,0.12)'; g.fillRect(396, 152, 70, 44);
+  // teclado y lámpara cálida
+  R(310, 192, 60, 4, '#A9B6BE'); for (let i = 0; i < 8; i++) R(312 + i * 7, 193, 5, 1, '#6F7C86');
+  R(430, 150, 4, 46, '#FF9F4A'); R(418, 142, 26, 10, '#FF9F4A'); R(418, 142, 26, 2, '#FFD166');
+  g.globalCompositeOperation = 'lighter'; g.globalAlpha = day ? 0.18 : 0.4; g.drawImage(glowSprite('#FFD27A', 44), 431 - 44, 160 - 44); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   // BYTE
   const sheet = Sprites.byte[st.byteLow ? 'low' : 'normal'];
   const anim = st.byteAnim || 'idle';

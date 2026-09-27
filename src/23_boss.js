@@ -562,3 +562,4 @@ LEVEL9.renderFg = function (g, W) {
     if (Math.random() < 0.3) W.particles.spawn({ x: x + 8 + rand(-6, 6), y: y + 18, vy: 20, col: pick([PAL.cyan, PAL.violet, PAL.gold]), life: 0.4 });
   }
 };
+BossConsole.prototype.glow = function (W) { const B = W.v.boss || {}; const done = B.done && B.done[this.phase], act = B.active && B.phase === this.phase && B.state === 'console'; return [this.cx, this.y + 6, act ? 20 : 12, done ? '#71FF9A' : act ? '#FF5F6A' : '#45E5FF', act ? 0.45 : 0.2]; };

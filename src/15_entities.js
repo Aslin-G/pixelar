@@ -1276,3 +1276,26 @@ function makeEntity(type, cx, cy, p, W) {
   if (!C) { console.warn('Tipo de entidad desconocido:', type); return null; }
   return new C(cx, cy, p, W);
 }
+
+// ---------- Brillos (luz aditiva) por tipo de entidad: [x, y, radio, color, intensidad] ----------
+Terminal.prototype.glow = function (W) { return [this.cx, this.y + 5, 16, this.p.nullScreen ? '#FF6FD8' : this.solved ? '#71FF9A' : '#45E5FF', 0.3]; };
+Checkpoint.prototype.glow = function () { return [this.cx, this.y + 4, this.active ? 20 : 14, this.active ? '#71FF9A' : '#45E5FF', this.active ? 0.42 : 0.2]; };
+Fragment.prototype.glow = function () { return [this.cx, this.cy, 18, '#FFD166', 0.45 + 0.1 * Math.sin(this.t * 4)]; };
+Letter.prototype.glow = function () { return [this.cx, this.cy, 18, '#FFE9A8', 0.45]; };
+Exit.prototype.glow = function (W) { const o = this.isOpen(W); return [this.cx, this.y + 14, 24, o ? '#71FF9A' : '#FF5F6A', o ? 0.35 : 0.22]; };
+Historic.prototype.glow = function () { return [this.cx, this.y + 6, 16, '#FFE9A8', 0.3]; };
+LinkNode.prototype.glow = function () { return [this.cx, this.y + 4, 12, this.linked ? '#71FF9A' : '#FFD166', 0.4]; };
+BusNode.prototype.glow = function () { return [this.cx, this.y + 4, 12, this.linked ? '#FFD166' : '#45E5FF', 0.4]; };
+Socket.prototype.glow = function () { return this.lit ? [this.cx, this.y + 3, 12, this.lit, 0.45] : null; };
+Fan.prototype.glow = function () { return this.on ? [this.cx, this.cy, 16, '#7FF3FF', 0.25] : null; };
+Door.prototype.glow = function () { return this.opened ? null : [this.cx, this.cy, Math.min(26, Math.max(this.w, this.h) * 0.6), this.p.color || '#45E5FF', 0.16]; };
+Enemy.prototype.glow = function () { return [this.cx, this.cy, 12, this.kind === 'cachemiss' ? '#C79BFF' : this.kind === 'packetstorm' ? '#FFD166' : '#FF4F7A', 0.2]; };
+NPC.prototype.glow = function () { return this.interactive ? [this.cx, this.y + 4, 12, '#FFE9A8', 0.14] : null; };
+Deco.prototype.glow = function (W) {
+  const d = this.p.deco, th = W.theme;
+  if (d === 'lamp') return [this.x + 8, this.y + 3, 16, th.light, 0.45];
+  if (d === 'server') return [this.x + 8, this.y - 4, 16, '#71FF9A', 0.16];
+  if (d === 'chip') return [this.x + 5, this.y + 9, 8, th.accent, 0.3];
+  return null;
+};
+Screen.prototype.glow = function (W) { const m = W.screenMsgs[this.id]; return [this.cx, this.cy, Math.max(this.w, this.h) * 0.75, m ? (m.col || W.theme.light) : W.theme.light, m ? 0.22 : 0.1]; };

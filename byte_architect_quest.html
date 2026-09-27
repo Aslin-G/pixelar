@@ -122,6 +122,8 @@ const Task = {
   wait(t) { let e = 0; return { update(dt) { e += dt; }, done() { return e >= t; } }; },
   frame() { let n = 0; return { update() { n++; }, done() { return n >= 1; } }; },
   until(fn) { return { update() {}, done: fn }; },
+  // espera que NO bloquea el control: el jugador puede moverse y actuar mientras tanto
+  free(task) { task.free = true; return task; },
   signal() {
     return {
       _d: false, result: undefined,
@@ -168,7 +170,7 @@ class ScriptRunner {
     }
     if (this.threads.some(t => t.done)) this.threads = this.threads.filter(t => !t.done);
   }
-  get blocking() { return this.threads.some(t => t.blocking && !t.done); }
+  get blocking() { return this.threads.some(t => t.blocking && !t.done && !(t.wait && t.wait.free)); }
   get busy() { return this.threads.length > 0; }
   clear() { this.threads.length = 0; }
 }
@@ -370,7 +372,7 @@ const Font = (() => {
     const max = o.max == null ? Infinity : o.max;
     const hlCol = o.hl || PAL.amber;
     if (o.shadow) {
-      const so = Object.assign({}, o, { shadow: null, align: 'left', hl: o.shadow });
+      const so = Object.assign({}, o, { shadow: null, align: 'left', hl: o.shadow, _sh: true });
       draw(g, text, x + s, y + s, o.shadow, so);
     }
     let hl = o.startHl || false, cx = x, n = 0;
@@ -382,6 +384,7 @@ const Font = (() => {
       if (!gl.space) g.drawImage(hl ? atH : at, gl.sx, gl.sy, gl.w, ROWS, cx, y, gl.w * s, ROWS * s);
       cx += (gl.w + 1) * s; n++;
     }
+    if (api.trace && !o._sh && n > 0) api.trace(g, text, x, y, cx - x - s, ROWS * s);
     return n;
   }
   // Ajuste de línea respetando el resaltado entre líneas
@@ -428,7 +431,9 @@ const Font = (() => {
       remaining -= n;
     }
   }
-  return { init, draw, measure, wrap, drawLines, count, norm, has: ch => !!known && known.has(ch), LINE: 12, ROWS };
+  // trace: gancho opcional de QA (detector de texto superpuesto)
+  const api = { init, draw, measure, wrap, drawLines, count, norm, has: ch => !!known && known.has(ch), LINE: 12, ROWS, trace: null };
+  return api;
 })();
 
 
@@ -1948,6 +1953,13 @@ const UI = {
     }
     return r;
   },
+  // recorta un texto para que quepa en maxW (añade puntos suspensivos)
+  fit(text, maxW, s = 1) {
+    text = Font.norm(text);
+    if (Font.measure(text, s) <= maxW) return text;
+    while (text.length > 1 && Font.measure(text + '...', s) > maxW) text = text.slice(0, -1);
+    return text.trimEnd() + '...';
+  },
   textBlock(g, text, x, y, w, col, o = {}) {
     const lines = this.wrap(text, w, o.s || 1);
     Font.drawLines(g, lines, x, y, col || PAL.white, o);
@@ -1973,12 +1985,18 @@ const UI = {
     this.time += dt;
     // sólo 3 avisos visibles a la vez; el resto espera su turno (más rápido si hay cola)
     const fast = this.toasts.length > 3 ? 1.6 : 1;
+    // los avisos esperan mientras hay un menú, texto o desafío abierto (no se dibujan encima)
+    if (this.toastsPaused) return this.tickCaptions(dt);
     for (let i = 0; i < Math.min(3, this.toasts.length); i++) this.toasts[i].t += dt * fast;
     this.toasts = this.toasts.filter(t => t.t < 3.2);
+    this.tickCaptions(dt);
+  },
+  tickCaptions(dt) {
     for (const c of this.captions) c.t += dt;
     this.captions = this.captions.filter(c => c.t < 2.6);
   },
   drawToasts(g) {
+    if (this.toastsPaused) { this.toastTop = 0; return; }
     let y = Math.max(60, this.toastTop || 0);
     this.toastTop = 0;
     for (const t of this.toasts.slice(0, 3)) {
@@ -2249,16 +2267,17 @@ class ChallengeState {
     if (this.phase === 'guided') this.renderGuided(g);
   }
   renderConf(g) {
-    UI.panel(g, 110, 90, 260, 76, { title: 'METACOGNICIÓN', titleCol: PAL.violet });
-    Font.draw(g, '¿Qué tan seguro estás de tu respuesta?', 240, 100, PAL.white, { align: 'center' });
+    UI.overlayDim(g, 0.6);
+    UI.panel(g, 90, 84, 300, 96, { title: 'METACOGNICIÓN', titleCol: PAL.violet });
+    Font.draw(g, '¿Qué tan seguro estás de tu respuesta?', 240, 96, PAL.white, { align: 'center' });
     const labels = ['POCO', 'MEDIO', 'MUCHO'];
     this.confBtns = [];
     for (let i = 0; i < 3; i++) {
-      const bx = 128 + i * 78;
-      UI.button(g, bx, 124, 70, 18, labels[i], this.confSel === i, { color: PAL.violet });
-      this.confBtns.push({ x: bx, y: 124, w: 70, h: 18 });
+      const bx = 117 + i * 84;
+      UI.button(g, bx, 116, 76, 18, labels[i], this.confSel === i, { color: PAL.violet });
+      this.confBtns.push({ x: bx, y: 116, w: 76, h: 18 });
     }
-    Font.draw(g, 'No afecta al resultado: te ayuda a detectar ideas confusas.', 240, 148, PAL.gray, { align: 'center' });
+    Font.drawLines(g, UI.wrap('No afecta al resultado: te ayuda a detectar ideas confusas.', 280), 100, 142, PAL.gray);
   }
   renderResult(g) {
     const ok = this.resultOk;
@@ -3512,7 +3531,9 @@ class InterruptWidget extends Widget {
       Font.draw(g, (i + 1) + ' ' + f, x + 4, y + 1, i === curF ? PAL.cyan : PAL.gray);
     });
     Font.draw(g, 'ERRORES ' + this.errors, a.x + a.w - 4, a.y + 3, this.errors > this.allowed() ? PAL.red : PAL.grayL, { align: 'right' });
-    UI.textBlock(g, this.msg, a.x, a.y + a.h - 26, a.w, this.msgCol);
+    // mensaje en la zona libre de arriba a la derecha (nunca encima de los botones)
+    const ml = UI.wrap(this.msg || '', a.w - 206);
+    ml.slice(0, 3).forEach((l, i) => Font.draw(g, i === 2 && ml.length > 3 ? UI.fit(l + ' ' + ml.slice(3).join(' '), a.w - 206) : l, a.x + 200, a.y + 16 + i * 11, this.msgCol));
   }
 }
 
@@ -4702,6 +4723,7 @@ class World {
     this.lockCount = 0; this.tintMode = def.tint || null; this.darkness = def.darkness || 0;
     this.damageTaken = false; this.echoCd = 40; this.heat = 0; this.levelHud = null;
     this.screenMsgs = {};
+    this.labelQ = [];
     this.pending = []; this.ready = false; this.v = {};
     this.parseMap(def);
     this.cam = new Camera(this);
@@ -4907,7 +4929,8 @@ class World {
     UI.toast('HABILIDAD: ' + a.n, a.col);
     this.flash(a.col, 0.4);
     this.particles.burst(this.player.x + 5, this.player.y + 8, 30, { col: [a.col, PAL.white], max: 120, lmax: 1 });
-    this.tip(null, a.n + ': ' + a.d + '  [' + Input.label('ability') + '] usar · [' + Input.label('nextAbility') + '] cambiar');
+    const nodeHint = k === 'circuitLink' || k === 'busBridge' ? '  Junto a un nodo también puedes pulsar [' + Input.label('interact') + '].' : '';
+    this.tip(null, a.n + ': ' + a.d + '  [' + Input.label('ability') + '] usar · [' + Input.label('nextAbility') + '] cambiar.' + nodeHint);
   }
   codex(id, silent) { Codex.unlock(id, silent); }
   blueprint(ids, silent) { Blueprint.reveal(ids, silent); }
@@ -5031,6 +5054,11 @@ class World {
     this.t += dt; this.levelTime += dt;
     if (focus) { LearningModel.tick(dt); PROG.stats.time += dt; }
     this.scripts.update(dt);
+    // MODO CALMA: mientras se lee (diálogo, registro, desafío, elección o escena bloqueada)
+    // los enemigos y sus disparos se detienen y nada hace daño. Al terminar, un instante de gracia.
+    const calm = !focus || this.scripts.blocking || this.lockCount > 0;
+    if (this.calm && !calm) this.player.graceT = 1; // gracia sin parpadeo al cerrar el texto
+    this.calm = calm;
     this.platforms = this.entities.filter(e => e.solidTop);
     for (const pl of this.platforms) pl.preUpdate && pl.preUpdate(this, dt);
     this.player.update(this, dt, this.controlEnabled);
@@ -5038,9 +5066,10 @@ class World {
     const cx = this.cam.x, cy = this.cam.y;
     for (const e of this.entities) {
       if (e.dead) continue;
+      if (calm && e.enemy) { e.t += dt; e.flashT = Math.max(0, (e.flashT || 0) - dt); continue; }
       if (e.alwaysUpdate || (e.x > cx - 200 && e.x < cx + W + 200 && e.y > cy - 200 && e.y < cy + H + 200)) e.update(this, dt);
     }
-    for (const pr of this.projectiles) pr.update(this, dt);
+    for (const pr of this.projectiles) if (!calm || pr.owner === 'player') pr.update(this, dt);
     this.projectiles = this.projectiles.filter(p => !p.dead);
     this.particles.update(dt);
     if (this.entities.some(e => e.dead)) {
@@ -5099,6 +5128,7 @@ class World {
     this.player.render(g, this);
     this.nexo.render(g, this);
     for (const e of this.entities) if (e.layer === 3 && this.visible(e)) e.render(g, this);
+    this.flushLabels(g);
     for (const pr of this.projectiles) pr.render(g, this);
     this.particles.render(g, cx, cy);
     if (this.def.renderFg) this.def.renderFg(g, this, cx, cy);
@@ -5107,6 +5137,25 @@ class World {
     this.renderMood(g);
     if (this.flashT > 0) { g.globalAlpha = clamp(this.flashT / (this.flashMax || 0.3), 0, 1) * 0.6; g.fillStyle = this.flashCol; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
     if (this.glitchT > 0) this.renderGlitch(g);
+  }
+  // Etiquetas del mundo: se colocan al final evitando que se pisen entre sí
+  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small }); }
+  flushLabels(g) {
+    const L = this.labelQ;
+    if (!L.length) return;
+    L.sort((a, b) => a.prio - b.prio);
+    const placed = [];
+    for (const l of L) {
+      const w = Font.measure(l.text) + (l.back ? 6 : 2), h = 11, x0 = Math.round(l.x - w / 2);
+      const hit = yy => placed.some(r => x0 < r.x + r.w && x0 + w > r.x && yy < r.y + r.h && yy + h > r.y);
+      let y = Math.round(l.y), k = 0;
+      while (hit(y) && k < 6) { y -= 11; k++; }
+      placed.push({ x: x0, y, w, h });
+      if (y !== Math.round(l.y)) { g.fillStyle = l.col; g.globalAlpha = 0.5; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
+      if (l.back) { g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      Font.draw(g, l.text, Math.round(l.x), y, l.col, { align: 'center', shadow: l.shadow });
+    }
+    L.length = 0;
   }
   visible(e) { const c = this.cam; return e.x + (e.w || 16) + 40 > c.x && e.x - 40 < c.x + W && e.y + (e.h || 16) + 60 > c.y && e.y - 60 < c.y + H; }
   renderTiles(g, cx, cy) {
@@ -5211,7 +5260,7 @@ class Player {
     this.invuln = Math.max(0, this.invuln - dt); this.hurtT = Math.max(0, this.hurtT - dt); this.landT = Math.max(0, this.landT - dt);
     this.boostT = Math.max(0, this.boostT - dt); this.shieldT = Math.max(0, this.shieldT - dt); this.slowT = Math.max(0, this.slowT - dt);
     this.celebrateT = Math.max(0, this.celebrateT - dt); this.analyzeT = Math.max(0, this.analyzeT - dt); this.interactT = Math.max(0, this.interactT - dt);
-    this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt);
+    this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
     this.energy = Math.min(maxE, this.energy + dt * 13);
@@ -5320,7 +5369,7 @@ class Player {
     this.invuln = Math.max(this.invuln, 1);
   }
   hurt(W, dmg, srcX, env) {
-    if (this.dead) return;
+    if (this.dead || W.calm || (this.graceT > 0 && !env)) return;
     if (!env && (this.invuln > 0 || this.dashT > 0)) return;
     if (env && this.invuln > 0.9) return;
     AudioSys.play('hurt');
@@ -5686,7 +5735,7 @@ class BusErrorEnemy extends Enemy {
   *reroute(W) {
     const pk = this.pk;
     this.freezeT = 99;
-    const i = yield* W.prompt('BUS BRIDGE — BusError transporta «' + pk.t + '». ¿Por qué bus debe viajar?', BUS_NAME.slice(), { col: PAL.amber });
+    const i = yield* W.prompt('BUS BRIDGE — BusError transporta «' + pk.t + '». ¿Por qué bus debe viajar?', BUS_NAME.slice(), { col: PAL.amber, tag: 'BUS BRIDGE' });
     this.freezeT = 0;
     if (i < 0) return;
     if (i === pk.k) {
@@ -5932,7 +5981,7 @@ class Exit extends Ent {
     g.fillStyle = shade(col, 0.4); g.fillRect(x + 3, y + 3, 12, 29);
     if (open) { for (let i = 0; i < 4; i++) { const yy = y + 28 - ((W.t * 30 + i * 8) % 28); g.fillStyle = col; g.fillRect(x + 6, Math.round(yy), 6, 1); } }
     else { g.fillStyle = col; g.fillRect(x + 6, y + 12, 6, 6); }
-    Font.draw(g, open ? 'SALIDA' : 'BLOQ.', this.cx, y - 11, col, { align: 'center' });
+    W.label(open ? 'SALIDA' : 'BLOQ.', this.cx, y - 12, col, { prio: 0 });
   }
 }
 class Door extends Ent {
@@ -6049,7 +6098,7 @@ class Lever extends Ent {
   render(g, W) {
     g.drawImage(Sprites.objects.lever[this.on ? 1 : 0], this.x, this.y);
     if (this.p.protect) { g.fillStyle = 'rgba(159,246,255,0.25)'; g.fillRect(this.x - 1, this.y - 1, this.w + 2, this.h + 2); g.fillStyle = 'rgba(159,246,255,0.6)'; g.fillRect(this.x - 1, this.y - 1, this.w + 2, 1); }
-    if (this.p.name) Font.draw(g, this.p.name + '=' + (this.on ? 1 : 0), this.cx, this.y - 11, this.on ? PAL.cyan : PAL.gray, { align: 'center' });
+    if (this.p.name) W.label(this.p.name + '=' + (this.on ? 1 : 0), this.cx, this.y - 12, this.on ? PAL.cyan : PAL.grayL, { prio: 1 });
   }
 }
 class Plate extends Ent {
@@ -6062,7 +6111,7 @@ class Plate extends Ent {
     this.pressed = on(pl) || on(W.clone) || W.entities.some(e => e.kind === 'block' && !e.carried && on(e));
     if (this.pressed !== was) { AudioSys.play('tick'); if (this.p.onChange) this.p.onChange(W, this); }
   }
-  render(g) { g.drawImage(Sprites.objects.plate[this.pressed ? 1 : 0], this.x, this.y); if (this.p.name) Font.draw(g, this.p.name, this.cx, this.y - 11, this.pressed ? PAL.green : PAL.gray, { align: 'center' }); }
+  render(g, W) { g.drawImage(Sprites.objects.plate[this.pressed ? 1 : 0], this.x, this.y); if (this.p.name) W.label(this.p.name, this.cx, this.y - 12, this.pressed ? PAL.green : PAL.grayL, { prio: 2 }); }
 }
 class MovingPlatform extends Ent {
   constructor(cx, cy, p) {
@@ -6132,7 +6181,7 @@ class Block extends Ent {
     if (this.carried) return;
     this.drawAt(g, this.x, this.y);
     const near = W.player && Math.abs(W.player.cx - this.cx) < 40 && Math.abs(W.player.y - this.y) < 30;
-    if (near || this.inSocket) Font.draw(g, this.p.label || this.p.item, this.cx, this.y - 11, Sprites.objects.block[this.p.item] || PAL.white, { align: 'center', shadow: '#000' });
+    if (near || this.inSocket) W.label(this.p.label || this.p.item, this.cx, this.y - 12, Sprites.objects.block[this.p.item] || PAL.white, { prio: 3 });
   }
 }
 class Socket extends Ent {
@@ -6150,16 +6199,23 @@ class Socket extends Ent {
   }
   render(g, W) {
     g.drawImage(Sprites.objects.socket, this.x, this.y);
-    if (this.p.label) Font.draw(g, this.p.label, this.cx, this.y + 10, this.item ? PAL.cyan : PAL.gray, { align: 'center' });
+    if (this.p.label) W.label(this.p.label, this.cx, this.y + 10, this.item ? PAL.cyan : PAL.grayL, { prio: 2 });
     if (this.lit) { g.fillStyle = this.lit; g.fillRect(this.x + 5, this.y + 3, 10, 1); }
   }
 }
 class LinkNode extends Ent {
-  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'linknode'; this.layer = 1; this.label = p.label || p.id; }
+  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'linknode'; this.layer = 1; this.label = p.label || p.id; this.interactive = true; }
+  get prompt() { return this.linked ? this.label + ': enlace activo' : PROG.abilities.includes('circuitLink') ? 'Conectar nodo (CIRCUIT LINK)' : 'Nodo de circuito desconectado'; }
+  canInteract(W) { return !this.linked || (this.p.links || []).some(l => !l.ok); }
+  interact(W) {
+    if (!PROG.abilities.includes('circuitLink')) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Nodo desconectado. Hará falta una rutina capaz de reconectar circuitos... quizá la central VRM la tenga.', 'CURIOUS'); return; }
+    const self = this;
+    W.run(function* (W2) { yield* self.linkPrompt(W2); }, 'link');
+  }
   *linkPrompt(W) {
     const links = this.p.links || [];
     const opts = links.map(l => { const t = W.ent(l.to); return this.label + ' ↔ ' + (t ? t.label : l.to); });
-    const i = yield* W.prompt('CIRCUIT LINK — ¿qué conexión restableces?', opts, { col: PAL.green, sub: 'Nodo: ' + this.label });
+    const i = yield* W.prompt('CIRCUIT LINK — ¿qué conexión restableces?', opts, { col: PAL.green, sub: 'Nodo: ' + this.label, tag: 'CIRCUIT LINK' });
     if (i < 0) return;
     const L = links[i], other = W.ent(L.to);
     if (L.ok) {
@@ -6182,18 +6238,25 @@ class LinkNode extends Ent {
     g.drawImage(Sprites.objects.linknode, this.x, this.y);
     const on = this.linked;
     g.fillStyle = on ? PAL.green : (Math.floor(W.t * 2) % 2 ? PAL.amber : '#5A4A20'); g.fillRect(this.x + 5, this.y + 3, 2, 2);
-    Font.draw(g, this.label, this.cx, this.y - 11, on ? PAL.green : PAL.grayL, { align: 'center', shadow: '#000' });
+    W.label(this.label, this.cx, this.y - 12, on ? PAL.green : PAL.white, { prio: 1 });
   }
 }
 class BusNode extends Ent {
-  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'busnode'; this.layer = 1; this.label = p.label || p.id; }
+  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'busnode'; this.layer = 1; this.label = p.label || p.id; this.interactive = true; }
+  get prompt() { return PROG.abilities.includes('busBridge') ? 'Tender enlace (BUS BRIDGE)' : 'Nodo de bus'; }
+  interact(W) {
+    if (!PROG.abilities.includes('busBridge')) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Un nodo de bus. Sin una forma de tender enlaces, no podemos usarlo todavía.', 'CURIOUS'); return; }
+    if (!(this.p.dests || []).length) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Este nodo es un destino: tiende el enlace desde el otro extremo.', 'CURIOUS'); return; }
+    const self = this;
+    W.run(function* (W2) { yield* self.bridgePrompt(W2); }, 'bridge');
+  }
   *bridgePrompt(W) {
     const dests = this.p.dests || [];
     const opts = dests.map(d => { const t = W.ent(d.to); return 'DESTINO: ' + (t ? t.label : d.to); });
-    const i = yield* W.prompt('BUS BRIDGE — origen «' + this.label + '». Elige destino.', opts, { col: PAL.amber });
+    const i = yield* W.prompt('BUS BRIDGE — origen «' + this.label + '». Elige destino.', opts, { col: PAL.amber, tag: 'BUS BRIDGE' });
     if (i < 0) return;
     const D = dests[i];
-    const j = yield* W.prompt(D.q || ('¿Qué tipo de señal transporta este enlace? ' + (D.hint || '')), BUS_NAME.map(n => 'BUS DE ' + n), { col: PAL.amber, sub: this.label + ' → ' + (W.ent(D.to) ? W.ent(D.to).label : D.to) });
+    const j = yield* W.prompt(D.q || ('¿Qué tipo de señal transporta este enlace? ' + (D.hint || '')), BUS_NAME.map(n => 'BUS DE ' + n), { col: PAL.amber, tag: 'BUS BRIDGE', sub: this.label + ' → ' + (W.ent(D.to) ? W.ent(D.to).label : D.to) });
     if (j < 0) return;
     if (j === D.bus && !D.wrongDest) {
       AudioSys.play('bridge');
@@ -6216,7 +6279,7 @@ class BusNode extends Ent {
   render(g, W) {
     g.drawImage(Sprites.objects.linknode, this.x, this.y);
     g.fillStyle = this.linked ? PAL.amber : (Math.floor(W.t * 2) % 2 ? PAL.cyan : '#123C4A'); g.fillRect(this.x + 5, this.y + 3, 2, 2);
-    Font.draw(g, this.label, this.cx, this.y - 11, this.linked ? PAL.amber : PAL.grayL, { align: 'center', shadow: '#000' });
+    W.label(this.label, this.cx, this.y - 12, this.linked ? PAL.amber : PAL.white, { prio: 1 });
   }
 }
 class BridgeZone extends Ent {
@@ -6264,7 +6327,7 @@ class Fan extends Ent {
     if (dist(W.player.cx, W.player.y, this.cx, this.cy) < 90) W.heat = Math.max(0, W.heat - dt * 40);
     if (Math.random() < dt * 10) W.particles.spawn({ x: this.cx + rand(-6, 6), y: this.cy, vx: rand(-30, 30), vy: -40, col: PAL.cyan, life: 0.5 });
   }
-  render(g, W) { g.drawImage(Sprites.objects.fan[this.on ? Math.floor(W.t * 20) % 3 : 0], this.x, this.y); Font.draw(g, this.on ? 'ON' : 'OFF', this.cx, this.y - 11, this.on ? PAL.cyan : PAL.red, { align: 'center' }); }
+  render(g, W) { g.drawImage(Sprites.objects.fan[this.on ? Math.floor(W.t * 20) % 3 : 0], this.x, this.y); W.label(this.on ? 'ON' : 'OFF', this.cx, this.y - 12, this.on ? PAL.cyan : PAL.red, { prio: 2 }); }
 }
 class Marker extends Ent {
   constructor(cx, cy, p) { super(cx, cy, p, 10, 10); this.kind = 'marker'; this.layer = 1; this.y -= 4; }
@@ -6274,7 +6337,7 @@ class Marker extends Ent {
     g.fillStyle = has ? PAL.cyan : PAL.grayD;
     for (let k = 0; k < 5; k++) g.fillRect(x - k, y - 4 + k, k * 2 + 1, 1);
     for (let k = 0; k < 4; k++) g.fillRect(x - 3 + k, y + 1 + k, 7 - k * 2, 1);
-    if (has) Font.draw(g, 'FETCH', x, y - 16, PAL.cyan, { align: 'center' });
+    if (has) W.label('FETCH', x, y - 18, PAL.cyan, { prio: 4 });
   }
 }
 class Trigger extends Ent {
@@ -6407,8 +6470,7 @@ class EchoOrb {
     const x = Math.round(this.x + 6), y = Math.round(this.y + 6);
     g.fillStyle = PAL.violet; g.globalAlpha = 0.3; g.fillRect(x - 7, y - 7, 14, 14); g.globalAlpha = 1;
     g.fillStyle = '#C7A8FF'; g.fillRect(x - 4, y - 4, 8, 8); g.fillStyle = '#FFFFFF'; g.fillRect(x - 2, y - 2, 3, 3);
-    Font.draw(g, 'ECO', x, y - 20, PAL.violet, { align: 'center' });
-    Font.draw(g, CONCEPTS[this.concept], x, y - 11, '#C7A8FF', { align: 'center' });
+    W.label('ECO · ' + CONCEPTS[this.concept], x, y - 14, '#C7A8FF', { prio: 0 });
   }
 }
 class Clone {
@@ -6425,7 +6487,7 @@ class Clone {
     g.globalAlpha = 0.45 + 0.15 * Math.sin(this.t * 10);
     g.drawImage(silhouetteCache(this.facing < 0 ? fr.l : fr.r), Math.round(this.x - 4), Math.round(this.y + this.h - 21));
     g.globalAlpha = 1;
-    Font.draw(g, 'HILO 2 · ' + Math.ceil(this.life), this.x + 5, this.y - 12, PAL.green, { align: 'center' });
+    W.label('HILO 2 · ' + Math.ceil(this.life), this.x + 5, this.y - 13, PAL.green, { prio: 0 });
   }
 }
 
@@ -6610,24 +6672,24 @@ class ChoicePromptState {
   }
   done(i) { AudioSys.play(i >= 0 ? 'ui_ok' : 'ui_back'); if (Game.top() === this) Game.pop(); if (this.o.onDone) this.o.onDone(i); }
   render(g) {
-    UI.overlayDim(g, 0.5);
+    UI.overlayDim(g, 0.82);
     const col = this.o.col || PAL.cyan;
-    const h = 30 + this.lines.length * 12 + this.options.length * 16 + (this.o.sub ? 12 : 0);
+    const h = 36 + this.lines.length * 12 + this.options.length * 16 + (this.o.sub ? 12 : 0);
     const x = 40, y = Math.floor((H - h) / 2), w = 400;
-    UI.panel(g, x, y, w, h, { border: col, title: 'HABILIDAD', titleCol: col });
+    UI.panel(g, x, y, w, h, { border: col, title: this.o.tag || 'ELECCIÓN', titleCol: col });
     Font.drawLines(g, this.lines, x + 10, y + 8, PAL.white, { hl: col });
     let yy = y + 10 + this.lines.length * 12;
-    if (this.o.sub) { Font.draw(g, this.o.sub, x + 10, yy, PAL.gray); yy += 12; }
+    if (this.o.sub) { Font.draw(g, UI.fit(this.o.sub, w - 20), x + 10, yy, PAL.gray); yy += 12; }
     this.rects = [];
     this.options.forEach((op, i) => {
       const foc = i === this.sel;
       g.fillStyle = foc ? shade(col, 0.3) : '#0D1C26'; g.fillRect(x + 8, yy, w - 16, 14);
       if (foc) { g.fillStyle = col; g.fillRect(x + 8, yy, 2, 14); }
-      Font.draw(g, op, x + 16, yy + 1, foc ? PAL.white : PAL.grayL);
+      Font.draw(g, UI.fit(op, w - 36), x + 16, yy + 1, foc ? PAL.white : PAL.grayL);
       this.rects.push({ x: x + 8, y: yy, w: w - 16, h: 14 });
       yy += 16;
     });
-    UI.keyHints(g, [['↑↓', 'Elegir'], ['E', 'Confirmar'], ['ESC', 'Cancelar']], W / 2, y + h + 4, 'center');
+    UI.keyHints(g, [['↑↓', 'Elegir'], ['E', 'Confirmar'], ['ESC', 'Cancelar']], W / 2, y + h - 15, 'center');
   }
 }
 
@@ -6685,9 +6747,10 @@ const Game = {
   push(s) { this.stack.push(s); if (s.enter) s.enter(); },
   pop() { const s = this.stack.pop(); if (s && s.exit) s.exit(); return s; },
   top() { return this.stack[this.stack.length - 1]; },
-  replace(s) { while (this.stack.length) this.pop(); this.push(s); },
+  replace(s) { while (this.stack.length) this.pop(); if (!(s instanceof GameplayState)) UI.toasts.length = 0; this.push(s); },
   update(dt) {
     this.time += dt;
+    UI.toastsPaused = !(this.top() instanceof GameplayState);
     UI.update(dt);
     const n = this.stack.length;
     if (!n) return;
@@ -6705,6 +6768,7 @@ const Game = {
     let j = this.stack.length - 1;
     while (j > 0 && this.stack[j].overlay) j--;
     for (let k = Math.max(0, j); k < this.stack.length; k++) this.stack[k].render(g);
+    UI.toastsPaused = !(this.top() instanceof GameplayState);
     UI.drawToasts(g);
     UI.drawCaptions(g);
     if (Settings.data.scanlines && !Settings.data.contrast && !this.lowFx) g.drawImage(this.scan, 0, 0);
@@ -6799,7 +6863,7 @@ function drawAbilityIcon(g, k, x, y, sel) {
 function drawHUD(g, W, st) {
   const p = W.player;
   // panel de estado (arriba izquierda)
-  g.fillStyle = 'rgba(5,9,13,0.72)'; g.fillRect(4, 4, 132, 34);
+  g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(4, 4, 132, 34);
   g.fillStyle = PAL.panelB; g.fillRect(4, 38, 132, 1);
   for (let i = 0; i < PROG.maxHp; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? PAL.red : '#3A1A20');
   if (Settings.data.assist) Font.draw(g, 'ASIST.', 132, 5, PAL.gray, { align: 'right' });
@@ -6810,7 +6874,7 @@ function drawHUD(g, W, st) {
   UI.bar(g, 30, 29, 100, 3, (PROG.xp - a0) / Math.max(1, a1 - a0), PAL.green);
   // habilidad (arriba derecha)
   const k = PROG.abilities[PROG.selAbility];
-  g.fillStyle = 'rgba(5,9,13,0.72)'; g.fillRect(W_HUD_R - 150, 4, 146, 22);
+  g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 150, 4, 146, 22);
   if (k) {
     const a = ABILITIES[k];
     drawAbilityIcon(g, k, W_HUD_R - 146, 8, true);
@@ -6828,12 +6892,14 @@ function drawHUD(g, W, st) {
     while (Font.measure(txt) > 220 && txt.length > 10) txt = txt.slice(0, -2);
     if (txt !== '▸ ' + q.objective) txt += '…';
     const tw = Font.measure(txt) + 8;
-    g.fillStyle = 'rgba(5,9,13,0.6)'; g.fillRect(W_HUD_R - 4 - tw, qy, tw, 12);
+    g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - tw, qy, tw, 12);
     Font.draw(g, txt, W_HUD_R - 8, qy - 1, PAL.white, { align: 'right' });
     qy += 13;
   }
   if (W.def.concepts) {
-    const ct = 'CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · ');
+    const ct = UI.fit('CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · '), 300);
+    const cw = Font.measure(ct) + 8;
+    g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - cw, qy, cw, 12);
     Font.draw(g, ct, W_HUD_R - 8, qy - 1, PAL.cyan, { align: 'right' });
   }
   // calor
@@ -6914,9 +6980,10 @@ class MenuState {
   }
   activate(it) { if (!it || it.disabled) { AudioSys.play('ui_back'); return; } AudioSys.play('ui_ok'); it.fn(); }
   render(g) {
-    UI.overlayDim(g, this.o.dim == null ? 0.7 : this.o.dim);
+    UI.overlayDim(g, this.o.dim == null ? 0.84 : this.o.dim);
     const items = this.items.filter(i => !i.hidden);
-    const w = this.o.w || 220, h = items.length * 18 + 30;
+    const footer = typeof this.o.footer === 'function' ? this.o.footer() : this.o.footer;
+    const w = Math.max(this.o.w || 220, footer ? Font.measure(footer) + 24 : 0), h = items.length * 18 + 30 + (footer ? 14 : 0);
     const x = (W - w) / 2, y = this.o.y || Math.floor((H - h) / 2);
     UI.panel(g, x, y, w, h, { title: this.title, titleCol: this.o.col || PAL.cyan });
     this.rects = [];
@@ -6925,7 +6992,7 @@ class MenuState {
       UI.button(g, x + 14, yy, w - 28, 15, it.label, i === this.sel, { disabled: it.disabled, color: it.color });
       this.rects.push({ x: x + 14, y: yy, w: w - 28, h: 15 });
     });
-    if (this.o.footer) Font.draw(g, this.o.footer, W / 2, y + h + 4, PAL.gray, { align: 'center' });
+    if (footer) Font.draw(g, footer, W / 2, y + h - 18, PAL.gray, { align: 'center' });
   }
 }
 class ConfirmState extends MenuState {
@@ -6956,9 +7023,10 @@ class PauseState extends MenuState {
   enter() { AudioSys.muffle(true); }
   exit() { AudioSys.muffle(false); }
   render(g) {
-    super.render(g);
     const lvl = LEVELS[PROG.level];
-    Font.draw(g, (lvl ? lvl.name : '') + '   ·   ' + fmtTime(PROG.stats.time) + '   ·   ' + (PROG.teacher ? 'SESIÓN DOCENTE (no se guarda)' : SaveManager.available ? 'guardado local activo' : 'guardado no disponible'), W / 2, 8, PAL.gray, { align: 'center' });
+    this.o.footer = (lvl ? lvl.name : '') + ' · ' + fmtTime(PROG.stats.time) + ' · ' + (PROG.teacher ? 'sesión docente (no se guarda)' : SaveManager.available ? 'guardado local activo' : 'guardado no disponible');
+    this.o.w = 250;
+    super.render(g);
   }
 }
 
@@ -7075,7 +7143,7 @@ class CodexState {
       const has = PROG.codex.includes(e.id), foc = i === this.sel;
       if (foc) { g.fillStyle = '#2A1A40'; g.fillRect(12, y, 140, 12); }
       if (e.cat !== lastCat) { g.fillStyle = PAL.grayD; g.fillRect(12, y, 2, 12); lastCat = e.cat; }
-      Font.draw(g, has ? e.name : '???', 18, y, foc ? PAL.white : has ? PAL.grayL : PAL.grayD);
+      Font.draw(g, has ? UI.fit(e.name, 132) : '???', 18, y, foc ? PAL.white : has ? PAL.grayL : PAL.grayD);
       this.rects.push({ x: 12, y, w: 140, h: 12, i });
     }
     const e = this.list[this.sel];
@@ -7086,24 +7154,34 @@ class CodexState {
       UI.textBlock(g, 'Explora, repara subsistemas y resuelve desafíos para desbloquearla.', x, 60, w, PAL.gray);
       return;
     }
+    // la ficha se desplaza en líneas; sólo se dibuja lo que cabe entre clipTop y clipBot
+    const clipTop = 16, clipBot = 246;
     let y = 16 - (this.dscroll || 0) * 12;
-    const clipTop = 14, clipBot = 258;
-    g.save(); g.beginPath(); g.rect(x - 2, clipTop, w + 6, clipBot - clipTop); g.clip();
-    Font.draw(g, e.cat, x, y, PAL.violet); y += 12;
-    UI.wrap(e.name, w, 2).forEach(l => { Font.draw(g, l, x, y, PAL.white, { s: 2 }); y += 22; });
-    const field = (label, text, col) => { if (!text) return; Font.draw(g, label, x, y, col || PAL.cyan); y += 11; const ls = UI.wrap(text, w); Font.drawLines(g, ls, x + 6, y, PAL.grayL); y += ls.length * 12 + 2; };
+    const inView = (yy, hh) => yy >= clipTop - 1 && yy + hh <= clipBot + 1;
+    const txt = (t, xx, yy, col, o) => { if (inView(yy, 11 * ((o && o.s) || 1))) Font.draw(g, t, xx, yy, col, o); };
+    txt(e.cat, x, y, PAL.violet); y += 12;
+    UI.wrap(e.name, w, 2).forEach(l => { txt(l, x, y, PAL.white, { s: 2 }); y += 23; });
+    const field = (label, text, col) => { if (!text) return; txt(label, x, y, col || PAL.cyan); y += 12; for (const l of UI.wrap(text, w - 6)) { txt(l, x + 6, y, PAL.grayL); y += 12; } y += 3; };
     field('DEFINICIÓN', e.def); field('FUNCIÓN', e.func); field('ENTRADAS', e.inp); field('SALIDAS', e.out); field('CONEXIONES', e.conn);
     if (e.lat || e.cap) {
-      Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 104, y + 4, e.lat, 5, PAL.amber);
-      Font.draw(g, 'CAPACIDAD RELATIVA', x + 150, y, PAL.cyan); UI.pips(g, x + 258, y + 4, e.cap, 5, PAL.green); y += 14;
+      if (inView(y, 11)) {
+        Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 108, y + 4, e.lat, 5, PAL.amber);
+        Font.draw(g, 'CAPACIDAD RELATIVA', x + 150, y, PAL.cyan); UI.pips(g, x + 264, y + 4, e.cap, 5, PAL.green);
+      }
+      y += 15;
     }
     field('EJEMPLO', e.ex, PAL.green); field('ERROR COMÚN', e.err, PAL.red);
-    if (e.byte) { Font.draw(g, 'OBSERVACIONES DE BYTE', x, y, PAL.amber); y += 11; const ls = UI.wrap('«' + e.byte + '»', w); Font.drawLines(g, ls, x + 6, y, '#F5E3B8'); y += ls.length * 12 + 2; }
-    if (e.concept) { Font.draw(g, 'DOMINIO ESTIMADO (' + CONCEPTS[e.concept] + ')', x, y, PAL.gray); UI.bar(g, x + 180, y + 4, 100, 4, LearningModel.mastery(e.concept) / 100, PAL.violet); Font.draw(g, LearningModel.mastery(e.concept) + '%', x + 286, y, PAL.violet); y += 12; }
-    g.restore();
+    if (e.byte) { txt('OBSERVACIONES DE BYTE', x, y, PAL.amber); y += 12; for (const l of UI.wrap('«' + e.byte + '»', w - 6)) { txt(l, x + 6, y, '#F5E3B8'); y += 12; } y += 3; }
+    if (e.concept) {
+      if (inView(y, 11)) { const lab = UI.fit('DOMINIO ESTIMADO (' + CONCEPTS[e.concept] + ')', 176); Font.draw(g, lab, x, y, PAL.gray); UI.bar(g, x + 182, y + 4, 90, 4, LearningModel.mastery(e.concept) / 100, PAL.violet); Font.draw(g, LearningModel.mastery(e.concept) + '%', x + 278, y, PAL.violet); }
+      y += 12;
+    }
     this.maxScroll = Math.max(0, Math.ceil((y + (this.dscroll || 0) * 12 - clipBot) / 12));
     if ((this.dscroll || 0) > this.maxScroll) this.dscroll = this.maxScroll;
-    if (this.maxScroll > 0) Font.draw(g, '←→ desplazar', 466, 250, PAL.grayD, { align: 'right' });
+    if (this.maxScroll > 0) {
+      g.fillStyle = '#0B1620'; g.fillRect(x - 2, clipBot + 1, w + 8, 12);
+      Font.draw(g, (this.dscroll || 0) < this.maxScroll ? '▼ más · ←→ desplazar' : '▲ ←→ desplazar', 466, clipBot + 1, PAL.gray, { align: 'right' });
+    }
   }
 }
 
@@ -7224,17 +7302,20 @@ class BlueprintState {
       g.fillStyle = col; g.fillRect(Math.round(lerp(a.x, b.x, pk.t)) - 1, Math.round(lerp(a.y, b.y, pk.t)) - 1, 3, 3);
     }
     // leyenda y panel de información
-    if (tab === 'com') BUS_NAME.forEach((b, i) => { g.fillStyle = BUS_COL[i]; g.fillRect(12 + i * 90, 232, 8, 3); Font.draw(g, 'BUS ' + b, 24 + i * 90, 227, BUS_COL[i]); });
-    if (tab === 'dep') Font.draw(g, '- - →  «depende de»: si el origen falla o se satura, el destino lo sufre.', 12, 227, PAL.amber);
-    const n = BP_NODES[this.sel];
-    g.fillStyle = 'rgba(4,14,20,0.95)'; g.fillRect(0, 238, W, 32); g.fillStyle = PAL.cyan; g.fillRect(0, 238, W, 1);
+    // panel de información (filas fijas: nombre · descripción (2) · conexiones · teclas)
+    const n = BP_NODES[this.sel], PY = 216;
+    g.fillStyle = 'rgba(4,14,20,0.96)'; g.fillRect(0, PY, W, H - PY); g.fillStyle = PAL.cyan; g.fillRect(0, PY, W, 1);
+    let legendW = 0;
+    if (tab === 'com') { let lx = W - 8; for (let i = 2; i >= 0; i--) { const t = 'BUS ' + BUS_NAME[i]; lx -= Font.measure(t); Font.draw(g, t, lx, PY + 1, BUS_COL[i]); g.fillStyle = BUS_COL[i]; g.fillRect(lx - 10, PY + 6, 7, 3); lx -= 18; } legendW = W - 8 - lx; }
+    if (tab === 'dep') { const t = '- - → «depende de»'; Font.draw(g, t, W - 8, PY + 1, PAL.amber, { align: 'right' }); legendW = Font.measure(t) + 10; }
     if (this.known(this.sel)) {
-      Font.draw(g, n.n, 8, 240, PAL.white);
+      Font.draw(g, UI.fit(n.n, W - 24 - legendW), 8, PY + 1, PAL.white);
       const conns = this.edges().filter(e => e[0] === this.sel || e[1] === this.sel).map(e => (e[0] === this.sel ? '→ ' + BP_NODES[e[1]].n : '← ' + BP_NODES[e[0]].n) + (typeof e[2] === 'number' ? ' (' + BUS_NAME[e[2]].toLowerCase() + ')' : ''));
-      UI.textBlock(g, n.d || '', 8, 251, 300, PAL.grayL, { lh: 9 });
-      Font.draw(g, conns.slice(0, 2).join('  '), W - 8, 240, PAL.cyan, { align: 'right' });
-    } else Font.draw(g, 'Nodo no descubierto todavía.', 8, 244, PAL.gray);
-    UI.keyHints(g, [['↑↓←→', 'Nodo'], ['E', 'Reproducir paquetes'], ['TAB', 'Capa'], ['ESC', 'Cerrar']], W - 4, 256, 'right');
+      const dl = UI.wrap(n.d || '', W - 16);
+      dl.slice(0, 2).forEach((l, i) => Font.draw(g, i === 1 && dl.length > 2 ? UI.fit(l + ' ' + dl.slice(2).join(' '), W - 16) : l, 8, PY + 12 + i * 10, PAL.grayL));
+      if (conns.length) Font.draw(g, UI.fit(conns.join('   '), W - 16), 8, PY + 33, PAL.cyan);
+    } else Font.draw(g, 'Nodo no descubierto todavía.', 8, PY + 12, PAL.gray);
+    UI.keyHints(g, [['↑↓←→', 'Nodo'], ['E', 'Reproducir paquetes'], ['TAB', 'Capa'], ['ESC', 'Cerrar']], W - 4, H - 12, 'right');
   }
 }
 
@@ -7831,7 +7912,7 @@ const LEVEL1 = {
       '#.......................NN......',
       '#.......................NN......',
       '#.......................NN####..',
-      '#.P.p....q..c....b......NN####..',
+      '#.P.p....q..c...........NN####..',
       G32, G32, G32, G32
     ],
     [ // B: cuarentena, plataformas y puerta
@@ -7843,7 +7924,7 @@ const LEVEL1 = {
       '......TT.....................D..',
       '......TT........====.........D..',
       '......TT.....................D..',
-      '......TTg.................t..D..',
+      '......TTg.......b.........t..D..',
       G32, G32, G32, G32
     ],
     [ // C: central VRM
@@ -7962,7 +8043,7 @@ const LEVEL1 = {
       W.flag('sawQuarantine');
     },
     links: function* (W) {
-      if (PROG.abilities.includes('circuitLink')) W.tip('link', 'Las pistas están cortadas. Acércate a un nodo y usa CIRCUIT LINK [' + Input.label('ability') + ']. Sólo las conexiones válidas funcionan.');
+      if (PROG.abilities.includes('circuitLink')) W.tip('link', 'Las pistas están cortadas. Ponte junto a un nodo y pulsa [' + Input.label('interact') + '] (o CIRCUIT LINK con [' + Input.label('ability') + ']) para elegir qué conectar. Sólo las conexiones válidas tienden el puente.');
       else W.bark('NEXO', 'Pistas cortadas. Necesitamos una forma de reconectar circuitos... La central VRM quizá tenga la clave.', 'CURIOUS');
     }
   },
@@ -7978,7 +8059,7 @@ const LEVEL1 = {
   hint(W) {
     if (!W.has('term_t_mb02')) { const t = W.ent('t_mb02'); return { text: 'La terminal del distrito abre el paso. Asocia cada componente con su función.', x: t.cx, y: t.y }; }
     if (!W.has('term_t_mb01')) { const t = W.ent('t_mb01'); return { text: 'El panel de reconstrucción de la central VRM: coloca cada componente en su conector.', x: t.cx, y: t.y }; }
-    if (!W.has('L1_bridge')) { const n = W.ent('n1'); return { text: 'Usa CIRCUIT LINK junto a un nodo. ¿Con quién habla la RAM?', x: n.cx, y: n.y }; }
+    if (!W.has('L1_bridge')) { const n = W.ent('n1'); return { text: 'Ponte junto al nodo CTRL. MEMORIA (CPU) y pulsa [' + Input.label('interact') + ']: ¿con qué componente habla directamente la RAM?', x: n.cx, y: n.y }; }
     if (!W.has('L1_gpu')) { const n = W.ent('n4'); return { text: 'La GPU no está conectada. ¿Qué ranura ofrece el mayor ancho de banda?', x: n.cx, y: n.y }; }
     return { text: 'La salida está abierta a la derecha.' };
   }
@@ -8838,7 +8919,7 @@ const LEVEL5 = {
   },
   hint(W) {
     if (!PROG.abilities.includes('busBridge')) return { text: 'AYUDA: el mensajero BUS puede darte una herramienta de enrutamiento.', x: W.ent('bnCPU').cx - 150, y: W.ent('bnCPU').y };
-    if (!W.has('L5_b1')) return { text: 'AYUDA: usa BUS BRIDGE junto al nodo CPU. Pregúntate qué viaja por el enlace: ¿un valor, un lugar o una orden?', x: W.ent('bnCPU').cx, y: W.ent('bnCPU').y };
+    if (!W.has('L5_b1')) return { text: 'AYUDA: ponte junto al nodo CPU y pulsa [' + Input.label('interact') + '] (o BUS BRIDGE). Pregúntate qué viaja por el enlace: ¿un valor, un lugar o una orden?', x: W.ent('bnCPU').cx, y: W.ent('bnCPU').y };
     if (!W.has('metNull')) return { text: 'AYUDA: sube a los paquetes de datos para cruzar la autopista.' };
     if (!W.has('L5_b2')) return { text: 'AYUDA: la memoria no recibe órdenes. Restablece la línea desde el nodo CPU (CONTROL).', x: W.ent('bnCTL').cx, y: W.ent('bnCTL').y };
     if (!W.has('L5_b3')) return { text: 'AYUDA: el último enlace transporta una posición de memoria.', x: W.ent('bnADR').cx, y: W.ent('bnADR').y };
@@ -9969,7 +10050,7 @@ function* BOSS_afterPhase(W, ph) {
     PROG.selAbility = PROG.abilities.indexOf('interruptShield');
     const sig = Task.signal();
     W.v.boss.shieldEvent = { t: 9, resolve: ok => sig.finish(ok) };
-    yield sig;
+    yield Task.free(sig); // el jugador recupera el control para usar el escudo
     W.lock();
     W.sfx('shield', '[interrupción]');
     W.flash(PAL.red, 0.3);
@@ -9998,7 +10079,7 @@ function* BOSS_decision(W) {
   ], { id: 'L9_decision1' });
   let done = false;
   while (!done) {
-    const i = yield* W.prompt('SISTEMA: EJECUTANDO «DELETE NULL» EN 10... 9... 8...', ['CONTINUAR: DELETE NULL', 'INTERRUMPIR EL PROCESO'], { col: PAL.red, sub: 'Una interrupción puede detener un proceso en curso.' });
+    const i = yield* W.prompt('SISTEMA: EJECUTANDO «DELETE NULL» EN 10... 9... 8...', ['CONTINUAR: DELETE NULL', 'INTERRUMPIR EL PROCESO'], { col: PAL.red, tag: 'DECISIÓN', sub: 'Una interrupción puede detener un proceso en curso.' });
     if (i === 0) {
       W.sfx('powerdown'); W.flash(PAL.red, 0.5); W.shake(6, 1); W.glitch(1.5, 'cascade');
       if (W.v.nullFig) W.v.nullFig.target = 0.15;
@@ -10023,7 +10104,7 @@ function* BOSS_decision(W) {
   // BUS BRIDGE: restablecer la comunicación entre NEXO y NULL
   let ok = false;
   while (!ok) {
-    const j = yield* W.prompt('BUS BRIDGE — origen: NEXO · destino: NULL. ¿Qué debe viajar por el enlace?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber });
+    const j = yield* W.prompt('BUS BRIDGE — origen: NEXO · destino: NULL. ¿Qué debe viajar por el enlace?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber, tag: 'BUS BRIDGE' });
     if (j === 3) ok = true;
     else yield* W.say([['NEXO', ['Sólo datos no basta: sin control no sabremos cuándo; sin direcciones, dónde.', 'Sólo direcciones: sabríamos dónde, pero no qué ni cuándo.', 'Sólo control: órdenes sin contenido y sin destino.'][Math.max(0, j)], 'CURIOUS'], ['NULL', 'Una comunicación incompleta fue lo que nos separó.']]);
   }
@@ -10389,6 +10470,9 @@ class EndingState extends CinematicBase {
       g.fillStyle = '#050709'; g.fillRect(0, 0, W, H);
       let y = this.creditY;
       for (const [txt, col, sc] of CREDITS) { if (y > -20 && y < H + 10 && txt) Font.draw(g, txt, W / 2, y, col || PAL.white, { align: 'center', s: sc }); y += sc === 2 ? 26 : 16; }
+      // franjas que ocultan el texto al entrar/salir (el aviso de «saltar» nunca lo pisa)
+      g.fillStyle = '#050709'; g.fillRect(0, H - 30, W, 30); g.fillRect(0, 0, W, 8);
+      g.fillStyle = 'rgba(5,7,9,0.6)'; g.fillRect(0, H - 38, W, 8);
       drawNexoBig(g, 30, 200 + Math.sin(this.t * 2) * 3, 'HAPPY', this.t, 2, 'nexus');
     } else { g.fillStyle = '#050709'; g.fillRect(0, 0, W, H); }
     if (s.black) { g.fillStyle = 'rgba(0,0,0,' + clamp(s.black, 0, 1) + ')'; g.fillRect(0, 0, W, H); }

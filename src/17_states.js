@@ -8,9 +8,10 @@ const Game = {
   push(s) { this.stack.push(s); if (s.enter) s.enter(); },
   pop() { const s = this.stack.pop(); if (s && s.exit) s.exit(); return s; },
   top() { return this.stack[this.stack.length - 1]; },
-  replace(s) { while (this.stack.length) this.pop(); this.push(s); },
+  replace(s) { while (this.stack.length) this.pop(); if (!(s instanceof GameplayState)) UI.toasts.length = 0; this.push(s); },
   update(dt) {
     this.time += dt;
+    UI.toastsPaused = !(this.top() instanceof GameplayState);
     UI.update(dt);
     const n = this.stack.length;
     if (!n) return;
@@ -28,6 +29,7 @@ const Game = {
     let j = this.stack.length - 1;
     while (j > 0 && this.stack[j].overlay) j--;
     for (let k = Math.max(0, j); k < this.stack.length; k++) this.stack[k].render(g);
+    UI.toastsPaused = !(this.top() instanceof GameplayState);
     UI.drawToasts(g);
     UI.drawCaptions(g);
     if (Settings.data.scanlines && !Settings.data.contrast && !this.lowFx) g.drawImage(this.scan, 0, 0);
@@ -122,7 +124,7 @@ function drawAbilityIcon(g, k, x, y, sel) {
 function drawHUD(g, W, st) {
   const p = W.player;
   // panel de estado (arriba izquierda)
-  g.fillStyle = 'rgba(5,9,13,0.72)'; g.fillRect(4, 4, 132, 34);
+  g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(4, 4, 132, 34);
   g.fillStyle = PAL.panelB; g.fillRect(4, 38, 132, 1);
   for (let i = 0; i < PROG.maxHp; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? PAL.red : '#3A1A20');
   if (Settings.data.assist) Font.draw(g, 'ASIST.', 132, 5, PAL.gray, { align: 'right' });
@@ -133,7 +135,7 @@ function drawHUD(g, W, st) {
   UI.bar(g, 30, 29, 100, 3, (PROG.xp - a0) / Math.max(1, a1 - a0), PAL.green);
   // habilidad (arriba derecha)
   const k = PROG.abilities[PROG.selAbility];
-  g.fillStyle = 'rgba(5,9,13,0.72)'; g.fillRect(W_HUD_R - 150, 4, 146, 22);
+  g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 150, 4, 146, 22);
   if (k) {
     const a = ABILITIES[k];
     drawAbilityIcon(g, k, W_HUD_R - 146, 8, true);
@@ -151,12 +153,14 @@ function drawHUD(g, W, st) {
     while (Font.measure(txt) > 220 && txt.length > 10) txt = txt.slice(0, -2);
     if (txt !== '▸ ' + q.objective) txt += '…';
     const tw = Font.measure(txt) + 8;
-    g.fillStyle = 'rgba(5,9,13,0.6)'; g.fillRect(W_HUD_R - 4 - tw, qy, tw, 12);
+    g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - tw, qy, tw, 12);
     Font.draw(g, txt, W_HUD_R - 8, qy - 1, PAL.white, { align: 'right' });
     qy += 13;
   }
   if (W.def.concepts) {
-    const ct = 'CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · ');
+    const ct = UI.fit('CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · '), 300);
+    const cw = Font.measure(ct) + 8;
+    g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - cw, qy, cw, 12);
     Font.draw(g, ct, W_HUD_R - 8, qy - 1, PAL.cyan, { align: 'right' });
   }
   // calor
@@ -237,9 +241,10 @@ class MenuState {
   }
   activate(it) { if (!it || it.disabled) { AudioSys.play('ui_back'); return; } AudioSys.play('ui_ok'); it.fn(); }
   render(g) {
-    UI.overlayDim(g, this.o.dim == null ? 0.7 : this.o.dim);
+    UI.overlayDim(g, this.o.dim == null ? 0.84 : this.o.dim);
     const items = this.items.filter(i => !i.hidden);
-    const w = this.o.w || 220, h = items.length * 18 + 30;
+    const footer = typeof this.o.footer === 'function' ? this.o.footer() : this.o.footer;
+    const w = Math.max(this.o.w || 220, footer ? Font.measure(footer) + 24 : 0), h = items.length * 18 + 30 + (footer ? 14 : 0);
     const x = (W - w) / 2, y = this.o.y || Math.floor((H - h) / 2);
     UI.panel(g, x, y, w, h, { title: this.title, titleCol: this.o.col || PAL.cyan });
     this.rects = [];
@@ -248,7 +253,7 @@ class MenuState {
       UI.button(g, x + 14, yy, w - 28, 15, it.label, i === this.sel, { disabled: it.disabled, color: it.color });
       this.rects.push({ x: x + 14, y: yy, w: w - 28, h: 15 });
     });
-    if (this.o.footer) Font.draw(g, this.o.footer, W / 2, y + h + 4, PAL.gray, { align: 'center' });
+    if (footer) Font.draw(g, footer, W / 2, y + h - 18, PAL.gray, { align: 'center' });
   }
 }
 class ConfirmState extends MenuState {
@@ -279,9 +284,10 @@ class PauseState extends MenuState {
   enter() { AudioSys.muffle(true); }
   exit() { AudioSys.muffle(false); }
   render(g) {
-    super.render(g);
     const lvl = LEVELS[PROG.level];
-    Font.draw(g, (lvl ? lvl.name : '') + '   ·   ' + fmtTime(PROG.stats.time) + '   ·   ' + (PROG.teacher ? 'SESIÓN DOCENTE (no se guarda)' : SaveManager.available ? 'guardado local activo' : 'guardado no disponible'), W / 2, 8, PAL.gray, { align: 'center' });
+    this.o.footer = (lvl ? lvl.name : '') + ' · ' + fmtTime(PROG.stats.time) + ' · ' + (PROG.teacher ? 'sesión docente (no se guarda)' : SaveManager.available ? 'guardado local activo' : 'guardado no disponible');
+    this.o.w = 250;
+    super.render(g);
   }
 }
 
@@ -398,7 +404,7 @@ class CodexState {
       const has = PROG.codex.includes(e.id), foc = i === this.sel;
       if (foc) { g.fillStyle = '#2A1A40'; g.fillRect(12, y, 140, 12); }
       if (e.cat !== lastCat) { g.fillStyle = PAL.grayD; g.fillRect(12, y, 2, 12); lastCat = e.cat; }
-      Font.draw(g, has ? e.name : '???', 18, y, foc ? PAL.white : has ? PAL.grayL : PAL.grayD);
+      Font.draw(g, has ? UI.fit(e.name, 132) : '???', 18, y, foc ? PAL.white : has ? PAL.grayL : PAL.grayD);
       this.rects.push({ x: 12, y, w: 140, h: 12, i });
     }
     const e = this.list[this.sel];
@@ -409,24 +415,34 @@ class CodexState {
       UI.textBlock(g, 'Explora, repara subsistemas y resuelve desafíos para desbloquearla.', x, 60, w, PAL.gray);
       return;
     }
+    // la ficha se desplaza en líneas; sólo se dibuja lo que cabe entre clipTop y clipBot
+    const clipTop = 16, clipBot = 246;
     let y = 16 - (this.dscroll || 0) * 12;
-    const clipTop = 14, clipBot = 258;
-    g.save(); g.beginPath(); g.rect(x - 2, clipTop, w + 6, clipBot - clipTop); g.clip();
-    Font.draw(g, e.cat, x, y, PAL.violet); y += 12;
-    UI.wrap(e.name, w, 2).forEach(l => { Font.draw(g, l, x, y, PAL.white, { s: 2 }); y += 22; });
-    const field = (label, text, col) => { if (!text) return; Font.draw(g, label, x, y, col || PAL.cyan); y += 11; const ls = UI.wrap(text, w); Font.drawLines(g, ls, x + 6, y, PAL.grayL); y += ls.length * 12 + 2; };
+    const inView = (yy, hh) => yy >= clipTop - 1 && yy + hh <= clipBot + 1;
+    const txt = (t, xx, yy, col, o) => { if (inView(yy, 11 * ((o && o.s) || 1))) Font.draw(g, t, xx, yy, col, o); };
+    txt(e.cat, x, y, PAL.violet); y += 12;
+    UI.wrap(e.name, w, 2).forEach(l => { txt(l, x, y, PAL.white, { s: 2 }); y += 23; });
+    const field = (label, text, col) => { if (!text) return; txt(label, x, y, col || PAL.cyan); y += 12; for (const l of UI.wrap(text, w - 6)) { txt(l, x + 6, y, PAL.grayL); y += 12; } y += 3; };
     field('DEFINICIÓN', e.def); field('FUNCIÓN', e.func); field('ENTRADAS', e.inp); field('SALIDAS', e.out); field('CONEXIONES', e.conn);
     if (e.lat || e.cap) {
-      Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 104, y + 4, e.lat, 5, PAL.amber);
-      Font.draw(g, 'CAPACIDAD RELATIVA', x + 150, y, PAL.cyan); UI.pips(g, x + 258, y + 4, e.cap, 5, PAL.green); y += 14;
+      if (inView(y, 11)) {
+        Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 108, y + 4, e.lat, 5, PAL.amber);
+        Font.draw(g, 'CAPACIDAD RELATIVA', x + 150, y, PAL.cyan); UI.pips(g, x + 264, y + 4, e.cap, 5, PAL.green);
+      }
+      y += 15;
     }
     field('EJEMPLO', e.ex, PAL.green); field('ERROR COMÚN', e.err, PAL.red);
-    if (e.byte) { Font.draw(g, 'OBSERVACIONES DE BYTE', x, y, PAL.amber); y += 11; const ls = UI.wrap('«' + e.byte + '»', w); Font.drawLines(g, ls, x + 6, y, '#F5E3B8'); y += ls.length * 12 + 2; }
-    if (e.concept) { Font.draw(g, 'DOMINIO ESTIMADO (' + CONCEPTS[e.concept] + ')', x, y, PAL.gray); UI.bar(g, x + 180, y + 4, 100, 4, LearningModel.mastery(e.concept) / 100, PAL.violet); Font.draw(g, LearningModel.mastery(e.concept) + '%', x + 286, y, PAL.violet); y += 12; }
-    g.restore();
+    if (e.byte) { txt('OBSERVACIONES DE BYTE', x, y, PAL.amber); y += 12; for (const l of UI.wrap('«' + e.byte + '»', w - 6)) { txt(l, x + 6, y, '#F5E3B8'); y += 12; } y += 3; }
+    if (e.concept) {
+      if (inView(y, 11)) { const lab = UI.fit('DOMINIO ESTIMADO (' + CONCEPTS[e.concept] + ')', 176); Font.draw(g, lab, x, y, PAL.gray); UI.bar(g, x + 182, y + 4, 90, 4, LearningModel.mastery(e.concept) / 100, PAL.violet); Font.draw(g, LearningModel.mastery(e.concept) + '%', x + 278, y, PAL.violet); }
+      y += 12;
+    }
     this.maxScroll = Math.max(0, Math.ceil((y + (this.dscroll || 0) * 12 - clipBot) / 12));
     if ((this.dscroll || 0) > this.maxScroll) this.dscroll = this.maxScroll;
-    if (this.maxScroll > 0) Font.draw(g, '←→ desplazar', 466, 250, PAL.grayD, { align: 'right' });
+    if (this.maxScroll > 0) {
+      g.fillStyle = '#0B1620'; g.fillRect(x - 2, clipBot + 1, w + 8, 12);
+      Font.draw(g, (this.dscroll || 0) < this.maxScroll ? '▼ más · ←→ desplazar' : '▲ ←→ desplazar', 466, clipBot + 1, PAL.gray, { align: 'right' });
+    }
   }
 }
 
@@ -547,17 +563,20 @@ class BlueprintState {
       g.fillStyle = col; g.fillRect(Math.round(lerp(a.x, b.x, pk.t)) - 1, Math.round(lerp(a.y, b.y, pk.t)) - 1, 3, 3);
     }
     // leyenda y panel de información
-    if (tab === 'com') BUS_NAME.forEach((b, i) => { g.fillStyle = BUS_COL[i]; g.fillRect(12 + i * 90, 232, 8, 3); Font.draw(g, 'BUS ' + b, 24 + i * 90, 227, BUS_COL[i]); });
-    if (tab === 'dep') Font.draw(g, '- - →  «depende de»: si el origen falla o se satura, el destino lo sufre.', 12, 227, PAL.amber);
-    const n = BP_NODES[this.sel];
-    g.fillStyle = 'rgba(4,14,20,0.95)'; g.fillRect(0, 238, W, 32); g.fillStyle = PAL.cyan; g.fillRect(0, 238, W, 1);
+    // panel de información (filas fijas: nombre · descripción (2) · conexiones · teclas)
+    const n = BP_NODES[this.sel], PY = 216;
+    g.fillStyle = 'rgba(4,14,20,0.96)'; g.fillRect(0, PY, W, H - PY); g.fillStyle = PAL.cyan; g.fillRect(0, PY, W, 1);
+    let legendW = 0;
+    if (tab === 'com') { let lx = W - 8; for (let i = 2; i >= 0; i--) { const t = 'BUS ' + BUS_NAME[i]; lx -= Font.measure(t); Font.draw(g, t, lx, PY + 1, BUS_COL[i]); g.fillStyle = BUS_COL[i]; g.fillRect(lx - 10, PY + 6, 7, 3); lx -= 18; } legendW = W - 8 - lx; }
+    if (tab === 'dep') { const t = '- - → «depende de»'; Font.draw(g, t, W - 8, PY + 1, PAL.amber, { align: 'right' }); legendW = Font.measure(t) + 10; }
     if (this.known(this.sel)) {
-      Font.draw(g, n.n, 8, 240, PAL.white);
+      Font.draw(g, UI.fit(n.n, W - 24 - legendW), 8, PY + 1, PAL.white);
       const conns = this.edges().filter(e => e[0] === this.sel || e[1] === this.sel).map(e => (e[0] === this.sel ? '→ ' + BP_NODES[e[1]].n : '← ' + BP_NODES[e[0]].n) + (typeof e[2] === 'number' ? ' (' + BUS_NAME[e[2]].toLowerCase() + ')' : ''));
-      UI.textBlock(g, n.d || '', 8, 251, 300, PAL.grayL, { lh: 9 });
-      Font.draw(g, conns.slice(0, 2).join('  '), W - 8, 240, PAL.cyan, { align: 'right' });
-    } else Font.draw(g, 'Nodo no descubierto todavía.', 8, 244, PAL.gray);
-    UI.keyHints(g, [['↑↓←→', 'Nodo'], ['E', 'Reproducir paquetes'], ['TAB', 'Capa'], ['ESC', 'Cerrar']], W - 4, 256, 'right');
+      const dl = UI.wrap(n.d || '', W - 16);
+      dl.slice(0, 2).forEach((l, i) => Font.draw(g, i === 1 && dl.length > 2 ? UI.fit(l + ' ' + dl.slice(2).join(' '), W - 16) : l, 8, PY + 12 + i * 10, PAL.grayL));
+      if (conns.length) Font.draw(g, UI.fit(conns.join('   '), W - 16), 8, PY + 33, PAL.cyan);
+    } else Font.draw(g, 'Nodo no descubierto todavía.', 8, PY + 12, PAL.gray);
+    UI.keyHints(g, [['↑↓←→', 'Nodo'], ['E', 'Reproducir paquetes'], ['TAB', 'Capa'], ['ESC', 'Cerrar']], W - 4, H - 12, 'right');
   }
 }
 

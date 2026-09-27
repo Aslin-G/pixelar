@@ -585,7 +585,7 @@ const LEVEL5 = {
   },
   hint(W) {
     if (!PROG.abilities.includes('busBridge')) return { text: 'AYUDA: el mensajero BUS puede darte una herramienta de enrutamiento.', x: W.ent('bnCPU').cx - 150, y: W.ent('bnCPU').y };
-    if (!W.has('L5_b1')) return { text: 'AYUDA: usa BUS BRIDGE junto al nodo CPU. Pregúntate qué viaja por el enlace: ¿un valor, un lugar o una orden?', x: W.ent('bnCPU').cx, y: W.ent('bnCPU').y };
+    if (!W.has('L5_b1')) return { text: 'AYUDA: ponte junto al nodo CPU y pulsa [' + Input.label('interact') + '] (o BUS BRIDGE). Pregúntate qué viaja por el enlace: ¿un valor, un lugar o una orden?', x: W.ent('bnCPU').cx, y: W.ent('bnCPU').y };
     if (!W.has('metNull')) return { text: 'AYUDA: sube a los paquetes de datos para cruzar la autopista.' };
     if (!W.has('L5_b2')) return { text: 'AYUDA: la memoria no recibe órdenes. Restablece la línea desde el nodo CPU (CONTROL).', x: W.ent('bnCTL').cx, y: W.ent('bnCTL').y };
     if (!W.has('L5_b3')) return { text: 'AYUDA: el último enlace transporta una posición de memoria.', x: W.ent('bnADR').cx, y: W.ent('bnADR').y };

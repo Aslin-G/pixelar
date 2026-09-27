@@ -99,6 +99,8 @@ const Task = {
   wait(t) { let e = 0; return { update(dt) { e += dt; }, done() { return e >= t; } }; },
   frame() { let n = 0; return { update() { n++; }, done() { return n >= 1; } }; },
   until(fn) { return { update() {}, done: fn }; },
+  // espera que NO bloquea el control: el jugador puede moverse y actuar mientras tanto
+  free(task) { task.free = true; return task; },
   signal() {
     return {
       _d: false, result: undefined,
@@ -145,7 +147,7 @@ class ScriptRunner {
     }
     if (this.threads.some(t => t.done)) this.threads = this.threads.filter(t => !t.done);
   }
-  get blocking() { return this.threads.some(t => t.blocking && !t.done); }
+  get blocking() { return this.threads.some(t => t.blocking && !t.done && !(t.wait && t.wait.free)); }
   get busy() { return this.threads.length > 0; }
   clear() { this.threads.length = 0; }
 }

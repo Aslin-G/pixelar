@@ -279,6 +279,9 @@ class EndingState extends CinematicBase {
       g.fillStyle = '#050709'; g.fillRect(0, 0, W, H);
       let y = this.creditY;
       for (const [txt, col, sc] of CREDITS) { if (y > -20 && y < H + 10 && txt) Font.draw(g, txt, W / 2, y, col || PAL.white, { align: 'center', s: sc }); y += sc === 2 ? 26 : 16; }
+      // franjas que ocultan el texto al entrar/salir (el aviso de «saltar» nunca lo pisa)
+      g.fillStyle = '#050709'; g.fillRect(0, H - 30, W, 30); g.fillRect(0, 0, W, 8);
+      g.fillStyle = 'rgba(5,7,9,0.6)'; g.fillRect(0, H - 38, W, 8);
       drawNexoBig(g, 30, 200 + Math.sin(this.t * 2) * 3, 'HAPPY', this.t, 2, 'nexus');
     } else { g.fillStyle = '#050709'; g.fillRect(0, 0, W, H); }
     if (s.black) { g.fillStyle = 'rgba(0,0,0,' + clamp(s.black, 0, 1) + ')'; g.fillRect(0, 0, W, H); }

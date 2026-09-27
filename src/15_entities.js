@@ -33,7 +33,7 @@ class Player {
     this.invuln = Math.max(0, this.invuln - dt); this.hurtT = Math.max(0, this.hurtT - dt); this.landT = Math.max(0, this.landT - dt);
     this.boostT = Math.max(0, this.boostT - dt); this.shieldT = Math.max(0, this.shieldT - dt); this.slowT = Math.max(0, this.slowT - dt);
     this.celebrateT = Math.max(0, this.celebrateT - dt); this.analyzeT = Math.max(0, this.analyzeT - dt); this.interactT = Math.max(0, this.interactT - dt);
-    this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt);
+    this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
     this.energy = Math.min(maxE, this.energy + dt * 13);
@@ -142,7 +142,7 @@ class Player {
     this.invuln = Math.max(this.invuln, 1);
   }
   hurt(W, dmg, srcX, env) {
-    if (this.dead) return;
+    if (this.dead || W.calm || (this.graceT > 0 && !env)) return;
     if (!env && (this.invuln > 0 || this.dashT > 0)) return;
     if (env && this.invuln > 0.9) return;
     AudioSys.play('hurt');
@@ -508,7 +508,7 @@ class BusErrorEnemy extends Enemy {
   *reroute(W) {
     const pk = this.pk;
     this.freezeT = 99;
-    const i = yield* W.prompt('BUS BRIDGE — BusError transporta «' + pk.t + '». ¿Por qué bus debe viajar?', BUS_NAME.slice(), { col: PAL.amber });
+    const i = yield* W.prompt('BUS BRIDGE — BusError transporta «' + pk.t + '». ¿Por qué bus debe viajar?', BUS_NAME.slice(), { col: PAL.amber, tag: 'BUS BRIDGE' });
     this.freezeT = 0;
     if (i < 0) return;
     if (i === pk.k) {
@@ -754,7 +754,7 @@ class Exit extends Ent {
     g.fillStyle = shade(col, 0.4); g.fillRect(x + 3, y + 3, 12, 29);
     if (open) { for (let i = 0; i < 4; i++) { const yy = y + 28 - ((W.t * 30 + i * 8) % 28); g.fillStyle = col; g.fillRect(x + 6, Math.round(yy), 6, 1); } }
     else { g.fillStyle = col; g.fillRect(x + 6, y + 12, 6, 6); }
-    Font.draw(g, open ? 'SALIDA' : 'BLOQ.', this.cx, y - 11, col, { align: 'center' });
+    W.label(open ? 'SALIDA' : 'BLOQ.', this.cx, y - 12, col, { prio: 0 });
   }
 }
 class Door extends Ent {
@@ -871,7 +871,7 @@ class Lever extends Ent {
   render(g, W) {
     g.drawImage(Sprites.objects.lever[this.on ? 1 : 0], this.x, this.y);
     if (this.p.protect) { g.fillStyle = 'rgba(159,246,255,0.25)'; g.fillRect(this.x - 1, this.y - 1, this.w + 2, this.h + 2); g.fillStyle = 'rgba(159,246,255,0.6)'; g.fillRect(this.x - 1, this.y - 1, this.w + 2, 1); }
-    if (this.p.name) Font.draw(g, this.p.name + '=' + (this.on ? 1 : 0), this.cx, this.y - 11, this.on ? PAL.cyan : PAL.gray, { align: 'center' });
+    if (this.p.name) W.label(this.p.name + '=' + (this.on ? 1 : 0), this.cx, this.y - 12, this.on ? PAL.cyan : PAL.grayL, { prio: 1 });
   }
 }
 class Plate extends Ent {
@@ -884,7 +884,7 @@ class Plate extends Ent {
     this.pressed = on(pl) || on(W.clone) || W.entities.some(e => e.kind === 'block' && !e.carried && on(e));
     if (this.pressed !== was) { AudioSys.play('tick'); if (this.p.onChange) this.p.onChange(W, this); }
   }
-  render(g) { g.drawImage(Sprites.objects.plate[this.pressed ? 1 : 0], this.x, this.y); if (this.p.name) Font.draw(g, this.p.name, this.cx, this.y - 11, this.pressed ? PAL.green : PAL.gray, { align: 'center' }); }
+  render(g, W) { g.drawImage(Sprites.objects.plate[this.pressed ? 1 : 0], this.x, this.y); if (this.p.name) W.label(this.p.name, this.cx, this.y - 12, this.pressed ? PAL.green : PAL.grayL, { prio: 2 }); }
 }
 class MovingPlatform extends Ent {
   constructor(cx, cy, p) {
@@ -954,7 +954,7 @@ class Block extends Ent {
     if (this.carried) return;
     this.drawAt(g, this.x, this.y);
     const near = W.player && Math.abs(W.player.cx - this.cx) < 40 && Math.abs(W.player.y - this.y) < 30;
-    if (near || this.inSocket) Font.draw(g, this.p.label || this.p.item, this.cx, this.y - 11, Sprites.objects.block[this.p.item] || PAL.white, { align: 'center', shadow: '#000' });
+    if (near || this.inSocket) W.label(this.p.label || this.p.item, this.cx, this.y - 12, Sprites.objects.block[this.p.item] || PAL.white, { prio: 3 });
   }
 }
 class Socket extends Ent {
@@ -972,16 +972,23 @@ class Socket extends Ent {
   }
   render(g, W) {
     g.drawImage(Sprites.objects.socket, this.x, this.y);
-    if (this.p.label) Font.draw(g, this.p.label, this.cx, this.y + 10, this.item ? PAL.cyan : PAL.gray, { align: 'center' });
+    if (this.p.label) W.label(this.p.label, this.cx, this.y + 10, this.item ? PAL.cyan : PAL.grayL, { prio: 2 });
     if (this.lit) { g.fillStyle = this.lit; g.fillRect(this.x + 5, this.y + 3, 10, 1); }
   }
 }
 class LinkNode extends Ent {
-  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'linknode'; this.layer = 1; this.label = p.label || p.id; }
+  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'linknode'; this.layer = 1; this.label = p.label || p.id; this.interactive = true; }
+  get prompt() { return this.linked ? this.label + ': enlace activo' : PROG.abilities.includes('circuitLink') ? 'Conectar nodo (CIRCUIT LINK)' : 'Nodo de circuito desconectado'; }
+  canInteract(W) { return !this.linked || (this.p.links || []).some(l => !l.ok); }
+  interact(W) {
+    if (!PROG.abilities.includes('circuitLink')) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Nodo desconectado. Hará falta una rutina capaz de reconectar circuitos... quizá la central VRM la tenga.', 'CURIOUS'); return; }
+    const self = this;
+    W.run(function* (W2) { yield* self.linkPrompt(W2); }, 'link');
+  }
   *linkPrompt(W) {
     const links = this.p.links || [];
     const opts = links.map(l => { const t = W.ent(l.to); return this.label + ' ↔ ' + (t ? t.label : l.to); });
-    const i = yield* W.prompt('CIRCUIT LINK — ¿qué conexión restableces?', opts, { col: PAL.green, sub: 'Nodo: ' + this.label });
+    const i = yield* W.prompt('CIRCUIT LINK — ¿qué conexión restableces?', opts, { col: PAL.green, sub: 'Nodo: ' + this.label, tag: 'CIRCUIT LINK' });
     if (i < 0) return;
     const L = links[i], other = W.ent(L.to);
     if (L.ok) {
@@ -1004,18 +1011,25 @@ class LinkNode extends Ent {
     g.drawImage(Sprites.objects.linknode, this.x, this.y);
     const on = this.linked;
     g.fillStyle = on ? PAL.green : (Math.floor(W.t * 2) % 2 ? PAL.amber : '#5A4A20'); g.fillRect(this.x + 5, this.y + 3, 2, 2);
-    Font.draw(g, this.label, this.cx, this.y - 11, on ? PAL.green : PAL.grayL, { align: 'center', shadow: '#000' });
+    W.label(this.label, this.cx, this.y - 12, on ? PAL.green : PAL.white, { prio: 1 });
   }
 }
 class BusNode extends Ent {
-  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'busnode'; this.layer = 1; this.label = p.label || p.id; }
+  constructor(cx, cy, p) { super(cx, cy, p, 12, 16); this.kind = 'busnode'; this.layer = 1; this.label = p.label || p.id; this.interactive = true; }
+  get prompt() { return PROG.abilities.includes('busBridge') ? 'Tender enlace (BUS BRIDGE)' : 'Nodo de bus'; }
+  interact(W) {
+    if (!PROG.abilities.includes('busBridge')) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Un nodo de bus. Sin una forma de tender enlaces, no podemos usarlo todavía.', 'CURIOUS'); return; }
+    if (!(this.p.dests || []).length) { W.bark(Voice.speaker() === 'NEXO' ? 'NEXO' : 'SYS', 'Este nodo es un destino: tiende el enlace desde el otro extremo.', 'CURIOUS'); return; }
+    const self = this;
+    W.run(function* (W2) { yield* self.bridgePrompt(W2); }, 'bridge');
+  }
   *bridgePrompt(W) {
     const dests = this.p.dests || [];
     const opts = dests.map(d => { const t = W.ent(d.to); return 'DESTINO: ' + (t ? t.label : d.to); });
-    const i = yield* W.prompt('BUS BRIDGE — origen «' + this.label + '». Elige destino.', opts, { col: PAL.amber });
+    const i = yield* W.prompt('BUS BRIDGE — origen «' + this.label + '». Elige destino.', opts, { col: PAL.amber, tag: 'BUS BRIDGE' });
     if (i < 0) return;
     const D = dests[i];
-    const j = yield* W.prompt(D.q || ('¿Qué tipo de señal transporta este enlace? ' + (D.hint || '')), BUS_NAME.map(n => 'BUS DE ' + n), { col: PAL.amber, sub: this.label + ' → ' + (W.ent(D.to) ? W.ent(D.to).label : D.to) });
+    const j = yield* W.prompt(D.q || ('¿Qué tipo de señal transporta este enlace? ' + (D.hint || '')), BUS_NAME.map(n => 'BUS DE ' + n), { col: PAL.amber, tag: 'BUS BRIDGE', sub: this.label + ' → ' + (W.ent(D.to) ? W.ent(D.to).label : D.to) });
     if (j < 0) return;
     if (j === D.bus && !D.wrongDest) {
       AudioSys.play('bridge');
@@ -1038,7 +1052,7 @@ class BusNode extends Ent {
   render(g, W) {
     g.drawImage(Sprites.objects.linknode, this.x, this.y);
     g.fillStyle = this.linked ? PAL.amber : (Math.floor(W.t * 2) % 2 ? PAL.cyan : '#123C4A'); g.fillRect(this.x + 5, this.y + 3, 2, 2);
-    Font.draw(g, this.label, this.cx, this.y - 11, this.linked ? PAL.amber : PAL.grayL, { align: 'center', shadow: '#000' });
+    W.label(this.label, this.cx, this.y - 12, this.linked ? PAL.amber : PAL.white, { prio: 1 });
   }
 }
 class BridgeZone extends Ent {
@@ -1086,7 +1100,7 @@ class Fan extends Ent {
     if (dist(W.player.cx, W.player.y, this.cx, this.cy) < 90) W.heat = Math.max(0, W.heat - dt * 40);
     if (Math.random() < dt * 10) W.particles.spawn({ x: this.cx + rand(-6, 6), y: this.cy, vx: rand(-30, 30), vy: -40, col: PAL.cyan, life: 0.5 });
   }
-  render(g, W) { g.drawImage(Sprites.objects.fan[this.on ? Math.floor(W.t * 20) % 3 : 0], this.x, this.y); Font.draw(g, this.on ? 'ON' : 'OFF', this.cx, this.y - 11, this.on ? PAL.cyan : PAL.red, { align: 'center' }); }
+  render(g, W) { g.drawImage(Sprites.objects.fan[this.on ? Math.floor(W.t * 20) % 3 : 0], this.x, this.y); W.label(this.on ? 'ON' : 'OFF', this.cx, this.y - 12, this.on ? PAL.cyan : PAL.red, { prio: 2 }); }
 }
 class Marker extends Ent {
   constructor(cx, cy, p) { super(cx, cy, p, 10, 10); this.kind = 'marker'; this.layer = 1; this.y -= 4; }
@@ -1096,7 +1110,7 @@ class Marker extends Ent {
     g.fillStyle = has ? PAL.cyan : PAL.grayD;
     for (let k = 0; k < 5; k++) g.fillRect(x - k, y - 4 + k, k * 2 + 1, 1);
     for (let k = 0; k < 4; k++) g.fillRect(x - 3 + k, y + 1 + k, 7 - k * 2, 1);
-    if (has) Font.draw(g, 'FETCH', x, y - 16, PAL.cyan, { align: 'center' });
+    if (has) W.label('FETCH', x, y - 18, PAL.cyan, { prio: 4 });
   }
 }
 class Trigger extends Ent {
@@ -1229,8 +1243,7 @@ class EchoOrb {
     const x = Math.round(this.x + 6), y = Math.round(this.y + 6);
     g.fillStyle = PAL.violet; g.globalAlpha = 0.3; g.fillRect(x - 7, y - 7, 14, 14); g.globalAlpha = 1;
     g.fillStyle = '#C7A8FF'; g.fillRect(x - 4, y - 4, 8, 8); g.fillStyle = '#FFFFFF'; g.fillRect(x - 2, y - 2, 3, 3);
-    Font.draw(g, 'ECO', x, y - 20, PAL.violet, { align: 'center' });
-    Font.draw(g, CONCEPTS[this.concept], x, y - 11, '#C7A8FF', { align: 'center' });
+    W.label('ECO · ' + CONCEPTS[this.concept], x, y - 14, '#C7A8FF', { prio: 0 });
   }
 }
 class Clone {
@@ -1247,7 +1260,7 @@ class Clone {
     g.globalAlpha = 0.45 + 0.15 * Math.sin(this.t * 10);
     g.drawImage(silhouetteCache(this.facing < 0 ? fr.l : fr.r), Math.round(this.x - 4), Math.round(this.y + this.h - 21));
     g.globalAlpha = 1;
-    Font.draw(g, 'HILO 2 · ' + Math.ceil(this.life), this.x + 5, this.y - 12, PAL.green, { align: 'center' });
+    W.label('HILO 2 · ' + Math.ceil(this.life), this.x + 5, this.y - 13, PAL.green, { prio: 0 });
   }
 }
 

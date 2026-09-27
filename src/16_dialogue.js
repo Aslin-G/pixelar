@@ -164,24 +164,24 @@ class ChoicePromptState {
   }
   done(i) { AudioSys.play(i >= 0 ? 'ui_ok' : 'ui_back'); if (Game.top() === this) Game.pop(); if (this.o.onDone) this.o.onDone(i); }
   render(g) {
-    UI.overlayDim(g, 0.5);
+    UI.overlayDim(g, 0.82);
     const col = this.o.col || PAL.cyan;
-    const h = 30 + this.lines.length * 12 + this.options.length * 16 + (this.o.sub ? 12 : 0);
+    const h = 36 + this.lines.length * 12 + this.options.length * 16 + (this.o.sub ? 12 : 0);
     const x = 40, y = Math.floor((H - h) / 2), w = 400;
-    UI.panel(g, x, y, w, h, { border: col, title: 'HABILIDAD', titleCol: col });
+    UI.panel(g, x, y, w, h, { border: col, title: this.o.tag || 'ELECCIÓN', titleCol: col });
     Font.drawLines(g, this.lines, x + 10, y + 8, PAL.white, { hl: col });
     let yy = y + 10 + this.lines.length * 12;
-    if (this.o.sub) { Font.draw(g, this.o.sub, x + 10, yy, PAL.gray); yy += 12; }
+    if (this.o.sub) { Font.draw(g, UI.fit(this.o.sub, w - 20), x + 10, yy, PAL.gray); yy += 12; }
     this.rects = [];
     this.options.forEach((op, i) => {
       const foc = i === this.sel;
       g.fillStyle = foc ? shade(col, 0.3) : '#0D1C26'; g.fillRect(x + 8, yy, w - 16, 14);
       if (foc) { g.fillStyle = col; g.fillRect(x + 8, yy, 2, 14); }
-      Font.draw(g, op, x + 16, yy + 1, foc ? PAL.white : PAL.grayL);
+      Font.draw(g, UI.fit(op, w - 36), x + 16, yy + 1, foc ? PAL.white : PAL.grayL);
       this.rects.push({ x: x + 8, y: yy, w: w - 16, h: 14 });
       yy += 16;
     });
-    UI.keyHints(g, [['↑↓', 'Elegir'], ['E', 'Confirmar'], ['ESC', 'Cancelar']], W / 2, y + h + 4, 'center');
+    UI.keyHints(g, [['↑↓', 'Elegir'], ['E', 'Confirmar'], ['ESC', 'Cancelar']], W / 2, y + h - 15, 'center');
   }
 }
 

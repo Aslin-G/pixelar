@@ -163,7 +163,7 @@ const Font = (() => {
     const max = o.max == null ? Infinity : o.max;
     const hlCol = o.hl || PAL.amber;
     if (o.shadow) {
-      const so = Object.assign({}, o, { shadow: null, align: 'left', hl: o.shadow });
+      const so = Object.assign({}, o, { shadow: null, align: 'left', hl: o.shadow, _sh: true });
       draw(g, text, x + s, y + s, o.shadow, so);
     }
     let hl = o.startHl || false, cx = x, n = 0;
@@ -175,6 +175,7 @@ const Font = (() => {
       if (!gl.space) g.drawImage(hl ? atH : at, gl.sx, gl.sy, gl.w, ROWS, cx, y, gl.w * s, ROWS * s);
       cx += (gl.w + 1) * s; n++;
     }
+    if (api.trace && !o._sh && n > 0) api.trace(g, text, x, y, cx - x - s, ROWS * s);
     return n;
   }
   // Ajuste de línea respetando el resaltado entre líneas
@@ -221,5 +222,7 @@ const Font = (() => {
       remaining -= n;
     }
   }
-  return { init, draw, measure, wrap, drawLines, count, norm, has: ch => !!known && known.has(ch), LINE: 12, ROWS };
+  // trace: gancho opcional de QA (detector de texto superpuesto)
+  const api = { init, draw, measure, wrap, drawLines, count, norm, has: ch => !!known && known.has(ch), LINE: 12, ROWS, trace: null };
+  return api;
 })();

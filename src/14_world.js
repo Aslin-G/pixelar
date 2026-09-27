@@ -96,6 +96,7 @@ class World {
     this.lockCount = 0; this.tintMode = def.tint || null; this.darkness = def.darkness || 0;
     this.damageTaken = false; this.echoCd = 40; this.heat = 0; this.levelHud = null;
     this.screenMsgs = {};
+    this.labelQ = [];
     this.pending = []; this.ready = false; this.v = {};
     this.parseMap(def);
     this.cam = new Camera(this);
@@ -301,7 +302,8 @@ class World {
     UI.toast('HABILIDAD: ' + a.n, a.col);
     this.flash(a.col, 0.4);
     this.particles.burst(this.player.x + 5, this.player.y + 8, 30, { col: [a.col, PAL.white], max: 120, lmax: 1 });
-    this.tip(null, a.n + ': ' + a.d + '  [' + Input.label('ability') + '] usar · [' + Input.label('nextAbility') + '] cambiar');
+    const nodeHint = k === 'circuitLink' || k === 'busBridge' ? '  Junto a un nodo también puedes pulsar [' + Input.label('interact') + '].' : '';
+    this.tip(null, a.n + ': ' + a.d + '  [' + Input.label('ability') + '] usar · [' + Input.label('nextAbility') + '] cambiar.' + nodeHint);
   }
   codex(id, silent) { Codex.unlock(id, silent); }
   blueprint(ids, silent) { Blueprint.reveal(ids, silent); }
@@ -425,6 +427,11 @@ class World {
     this.t += dt; this.levelTime += dt;
     if (focus) { LearningModel.tick(dt); PROG.stats.time += dt; }
     this.scripts.update(dt);
+    // MODO CALMA: mientras se lee (diálogo, registro, desafío, elección o escena bloqueada)
+    // los enemigos y sus disparos se detienen y nada hace daño. Al terminar, un instante de gracia.
+    const calm = !focus || this.scripts.blocking || this.lockCount > 0;
+    if (this.calm && !calm) this.player.graceT = 1; // gracia sin parpadeo al cerrar el texto
+    this.calm = calm;
     this.platforms = this.entities.filter(e => e.solidTop);
     for (const pl of this.platforms) pl.preUpdate && pl.preUpdate(this, dt);
     this.player.update(this, dt, this.controlEnabled);
@@ -432,9 +439,10 @@ class World {
     const cx = this.cam.x, cy = this.cam.y;
     for (const e of this.entities) {
       if (e.dead) continue;
+      if (calm && e.enemy) { e.t += dt; e.flashT = Math.max(0, (e.flashT || 0) - dt); continue; }
       if (e.alwaysUpdate || (e.x > cx - 200 && e.x < cx + W + 200 && e.y > cy - 200 && e.y < cy + H + 200)) e.update(this, dt);
     }
-    for (const pr of this.projectiles) pr.update(this, dt);
+    for (const pr of this.projectiles) if (!calm || pr.owner === 'player') pr.update(this, dt);
     this.projectiles = this.projectiles.filter(p => !p.dead);
     this.particles.update(dt);
     if (this.entities.some(e => e.dead)) {
@@ -493,6 +501,7 @@ class World {
     this.player.render(g, this);
     this.nexo.render(g, this);
     for (const e of this.entities) if (e.layer === 3 && this.visible(e)) e.render(g, this);
+    this.flushLabels(g);
     for (const pr of this.projectiles) pr.render(g, this);
     this.particles.render(g, cx, cy);
     if (this.def.renderFg) this.def.renderFg(g, this, cx, cy);
@@ -501,6 +510,25 @@ class World {
     this.renderMood(g);
     if (this.flashT > 0) { g.globalAlpha = clamp(this.flashT / (this.flashMax || 0.3), 0, 1) * 0.6; g.fillStyle = this.flashCol; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
     if (this.glitchT > 0) this.renderGlitch(g);
+  }
+  // Etiquetas del mundo: se colocan al final evitando que se pisen entre sí
+  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small }); }
+  flushLabels(g) {
+    const L = this.labelQ;
+    if (!L.length) return;
+    L.sort((a, b) => a.prio - b.prio);
+    const placed = [];
+    for (const l of L) {
+      const w = Font.measure(l.text) + (l.back ? 6 : 2), h = 11, x0 = Math.round(l.x - w / 2);
+      const hit = yy => placed.some(r => x0 < r.x + r.w && x0 + w > r.x && yy < r.y + r.h && yy + h > r.y);
+      let y = Math.round(l.y), k = 0;
+      while (hit(y) && k < 6) { y -= 11; k++; }
+      placed.push({ x: x0, y, w, h });
+      if (y !== Math.round(l.y)) { g.fillStyle = l.col; g.globalAlpha = 0.5; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
+      if (l.back) { g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      Font.draw(g, l.text, Math.round(l.x), y, l.col, { align: 'center', shadow: l.shadow });
+    }
+    L.length = 0;
   }
   visible(e) { const c = this.cam; return e.x + (e.w || 16) + 40 > c.x && e.x - 40 < c.x + W && e.y + (e.h || 16) + 60 > c.y && e.y - 60 < c.y + H; }
   renderTiles(g, cx, cy) {

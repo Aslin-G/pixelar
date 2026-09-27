@@ -70,6 +70,13 @@ const UI = {
     }
     return r;
   },
+  // recorta un texto para que quepa en maxW (añade puntos suspensivos)
+  fit(text, maxW, s = 1) {
+    text = Font.norm(text);
+    if (Font.measure(text, s) <= maxW) return text;
+    while (text.length > 1 && Font.measure(text + '...', s) > maxW) text = text.slice(0, -1);
+    return text.trimEnd() + '...';
+  },
   textBlock(g, text, x, y, w, col, o = {}) {
     const lines = this.wrap(text, w, o.s || 1);
     Font.drawLines(g, lines, x, y, col || PAL.white, o);
@@ -95,12 +102,18 @@ const UI = {
     this.time += dt;
     // sólo 3 avisos visibles a la vez; el resto espera su turno (más rápido si hay cola)
     const fast = this.toasts.length > 3 ? 1.6 : 1;
+    // los avisos esperan mientras hay un menú, texto o desafío abierto (no se dibujan encima)
+    if (this.toastsPaused) return this.tickCaptions(dt);
     for (let i = 0; i < Math.min(3, this.toasts.length); i++) this.toasts[i].t += dt * fast;
     this.toasts = this.toasts.filter(t => t.t < 3.2);
+    this.tickCaptions(dt);
+  },
+  tickCaptions(dt) {
     for (const c of this.captions) c.t += dt;
     this.captions = this.captions.filter(c => c.t < 2.6);
   },
   drawToasts(g) {
+    if (this.toastsPaused) { this.toastTop = 0; return; }
     let y = Math.max(60, this.toastTop || 0);
     this.toastTop = 0;
     for (const t of this.toasts.slice(0, 3)) {

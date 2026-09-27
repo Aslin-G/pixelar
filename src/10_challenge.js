@@ -235,16 +235,17 @@ class ChallengeState {
     if (this.phase === 'guided') this.renderGuided(g);
   }
   renderConf(g) {
-    UI.panel(g, 110, 90, 260, 76, { title: 'METACOGNICIÓN', titleCol: PAL.violet });
-    Font.draw(g, '¿Qué tan seguro estás de tu respuesta?', 240, 100, PAL.white, { align: 'center' });
+    UI.overlayDim(g, 0.6);
+    UI.panel(g, 90, 84, 300, 96, { title: 'METACOGNICIÓN', titleCol: PAL.violet });
+    Font.draw(g, '¿Qué tan seguro estás de tu respuesta?', 240, 96, PAL.white, { align: 'center' });
     const labels = ['POCO', 'MEDIO', 'MUCHO'];
     this.confBtns = [];
     for (let i = 0; i < 3; i++) {
-      const bx = 128 + i * 78;
-      UI.button(g, bx, 124, 70, 18, labels[i], this.confSel === i, { color: PAL.violet });
-      this.confBtns.push({ x: bx, y: 124, w: 70, h: 18 });
+      const bx = 117 + i * 84;
+      UI.button(g, bx, 116, 76, 18, labels[i], this.confSel === i, { color: PAL.violet });
+      this.confBtns.push({ x: bx, y: 116, w: 76, h: 18 });
     }
-    Font.draw(g, 'No afecta al resultado: te ayuda a detectar ideas confusas.', 240, 148, PAL.gray, { align: 'center' });
+    Font.drawLines(g, UI.wrap('No afecta al resultado: te ayuda a detectar ideas confusas.', 280), 100, 142, PAL.gray);
   }
   renderResult(g) {
     const ok = this.resultOk;

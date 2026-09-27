@@ -426,7 +426,7 @@ function* BOSS_afterPhase(W, ph) {
     PROG.selAbility = PROG.abilities.indexOf('interruptShield');
     const sig = Task.signal();
     W.v.boss.shieldEvent = { t: 9, resolve: ok => sig.finish(ok) };
-    yield sig;
+    yield Task.free(sig); // el jugador recupera el control para usar el escudo
     W.lock();
     W.sfx('shield', '[interrupción]');
     W.flash(PAL.red, 0.3);
@@ -455,7 +455,7 @@ function* BOSS_decision(W) {
   ], { id: 'L9_decision1' });
   let done = false;
   while (!done) {
-    const i = yield* W.prompt('SISTEMA: EJECUTANDO «DELETE NULL» EN 10... 9... 8...', ['CONTINUAR: DELETE NULL', 'INTERRUMPIR EL PROCESO'], { col: PAL.red, sub: 'Una interrupción puede detener un proceso en curso.' });
+    const i = yield* W.prompt('SISTEMA: EJECUTANDO «DELETE NULL» EN 10... 9... 8...', ['CONTINUAR: DELETE NULL', 'INTERRUMPIR EL PROCESO'], { col: PAL.red, tag: 'DECISIÓN', sub: 'Una interrupción puede detener un proceso en curso.' });
     if (i === 0) {
       W.sfx('powerdown'); W.flash(PAL.red, 0.5); W.shake(6, 1); W.glitch(1.5, 'cascade');
       if (W.v.nullFig) W.v.nullFig.target = 0.15;
@@ -480,7 +480,7 @@ function* BOSS_decision(W) {
   // BUS BRIDGE: restablecer la comunicación entre NEXO y NULL
   let ok = false;
   while (!ok) {
-    const j = yield* W.prompt('BUS BRIDGE — origen: NEXO · destino: NULL. ¿Qué debe viajar por el enlace?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber });
+    const j = yield* W.prompt('BUS BRIDGE — origen: NEXO · destino: NULL. ¿Qué debe viajar por el enlace?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber, tag: 'BUS BRIDGE' });
     if (j === 3) ok = true;
     else yield* W.say([['NEXO', ['Sólo datos no basta: sin control no sabremos cuándo; sin direcciones, dónde.', 'Sólo direcciones: sabríamos dónde, pero no qué ni cuándo.', 'Sólo control: órdenes sin contenido y sin destino.'][Math.max(0, j)], 'CURIOUS'], ['NULL', 'Una comunicación incompleta fue lo que nos separó.']]);
   }

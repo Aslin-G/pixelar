@@ -306,7 +306,7 @@ const LEVEL1 = {
       '#.......................NN......',
       '#.......................NN......',
       '#.......................NN####..',
-      '#.P.p....q..c....b......NN####..',
+      '#.P.p....q..c...........NN####..',
       G32, G32, G32, G32
     ],
     [ // B: cuarentena, plataformas y puerta
@@ -318,7 +318,7 @@ const LEVEL1 = {
       '......TT.....................D..',
       '......TT........====.........D..',
       '......TT.....................D..',
-      '......TTg.................t..D..',
+      '......TTg.......b.........t..D..',
       G32, G32, G32, G32
     ],
     [ // C: central VRM
@@ -437,7 +437,7 @@ const LEVEL1 = {
       W.flag('sawQuarantine');
     },
     links: function* (W) {
-      if (PROG.abilities.includes('circuitLink')) W.tip('link', 'Las pistas están cortadas. Acércate a un nodo y usa CIRCUIT LINK [' + Input.label('ability') + ']. Sólo las conexiones válidas funcionan.');
+      if (PROG.abilities.includes('circuitLink')) W.tip('link', 'Las pistas están cortadas. Ponte junto a un nodo y pulsa [' + Input.label('interact') + '] (o CIRCUIT LINK con [' + Input.label('ability') + ']) para elegir qué conectar. Sólo las conexiones válidas tienden el puente.');
       else W.bark('NEXO', 'Pistas cortadas. Necesitamos una forma de reconectar circuitos... La central VRM quizá tenga la clave.', 'CURIOUS');
     }
   },
@@ -453,7 +453,7 @@ const LEVEL1 = {
   hint(W) {
     if (!W.has('term_t_mb02')) { const t = W.ent('t_mb02'); return { text: 'La terminal del distrito abre el paso. Asocia cada componente con su función.', x: t.cx, y: t.y }; }
     if (!W.has('term_t_mb01')) { const t = W.ent('t_mb01'); return { text: 'El panel de reconstrucción de la central VRM: coloca cada componente en su conector.', x: t.cx, y: t.y }; }
-    if (!W.has('L1_bridge')) { const n = W.ent('n1'); return { text: 'Usa CIRCUIT LINK junto a un nodo. ¿Con quién habla la RAM?', x: n.cx, y: n.y }; }
+    if (!W.has('L1_bridge')) { const n = W.ent('n1'); return { text: 'Ponte junto al nodo CTRL. MEMORIA (CPU) y pulsa [' + Input.label('interact') + ']: ¿con qué componente habla directamente la RAM?', x: n.cx, y: n.y }; }
     if (!W.has('L1_gpu')) { const n = W.ent('n4'); return { text: 'La GPU no está conectada. ¿Qué ranura ofrece el mayor ancho de banda?', x: n.cx, y: n.y }; }
     return { text: 'La salida está abierta a la derecha.' };
   }

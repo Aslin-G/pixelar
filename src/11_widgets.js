@@ -1202,7 +1202,9 @@ class InterruptWidget extends Widget {
       Font.draw(g, (i + 1) + ' ' + f, x + 4, y + 1, i === curF ? PAL.cyan : PAL.gray);
     });
     Font.draw(g, 'ERRORES ' + this.errors, a.x + a.w - 4, a.y + 3, this.errors > this.allowed() ? PAL.red : PAL.grayL, { align: 'right' });
-    UI.textBlock(g, this.msg, a.x, a.y + a.h - 26, a.w, this.msgCol);
+    // mensaje en la zona libre de arriba a la derecha (nunca encima de los botones)
+    const ml = UI.wrap(this.msg || '', a.w - 206);
+    ml.slice(0, 3).forEach((l, i) => Font.draw(g, i === 2 && ml.length > 3 ? UI.fit(l + ' ' + ml.slice(3).join(' '), a.w - 206) : l, a.x + 200, a.y + 16 + i * 11, this.msgCol));
   }
 }
 

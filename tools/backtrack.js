@@ -10,7 +10,7 @@
 const path = require('path');
 let playwright;
 try { playwright = require('playwright'); } catch (e) { playwright = require('/opt/node22/lib/node_modules/playwright'); }
-const file = 'file://' + path.resolve(__dirname, '..', 'byte_architect_quest.html');
+const file = 'file://' + path.resolve(__dirname, '..', 'index.html');
 const only = process.argv[2] != null ? +process.argv[2] : null;
 
 (async () => {

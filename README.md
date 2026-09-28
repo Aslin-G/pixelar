@@ -6,7 +6,7 @@ los puzles, las habilidades y el jefe final están construidos sobre esos concep
 
 > No enseñamos las partes de una computadora. Enseñamos cómo cooperan para formar un sistema.
 
-El juego completo es un único archivo: **`byte_architect_quest.html`** (HTML + CSS + JavaScript
+El juego completo es un único archivo: **`index.html`** (HTML + CSS + JavaScript
 sin librerías, Canvas 2D, Web Audio y `localStorage`). No usa red, recursos externos ni imágenes:
 todos los gráficos, la fuente y la música se generan por código.
 
@@ -14,7 +14,7 @@ todos los gráficos, la fuente y la música se generan por código.
 
 ## Cómo ejecutarlo
 
-1. Abre `byte_architect_quest.html` con un navegador moderno (Chrome, Edge, Firefox o Safari).
+1. Abre `index.html` con un navegador moderno (Chrome, Edge, Firefox o Safari), o la versión publicada en GitHub Pages.
    Basta con hacer doble clic; no necesita servidor ni conexión.
 2. Pulsa una tecla o haz clic para arrancar (el audio del navegador se activa con la primera interacción).
 3. En el título: **NEW GAME** empieza la historia; **CONTINUE** carga la partida guardada;
@@ -29,7 +29,7 @@ almacenamiento o el audio, el juego sigue funcionando sin guardar o sin sonido.
 El HTML se genera concatenando los módulos de `src/`:
 
 ```bash
-node tools/build.js          # src/*.js + src/shell.html → byte_architect_quest.html
+node tools/build.js          # src/*.js + src/shell.html → index.html
 ```
 
 ---

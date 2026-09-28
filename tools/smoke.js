@@ -10,7 +10,7 @@ try { playwright = require('playwright'); } catch (e) { playwright = require('/o
 
 const out = process.argv[2] || path.resolve(__dirname, '..', 'shots');
 require('fs').mkdirSync(out, { recursive: true });
-const file = 'file://' + path.resolve(__dirname, '..', 'byte_architect_quest.html');
+const file = 'file://' + path.resolve(__dirname, '..', 'index.html');
 
 (async () => {
   const browser = await playwright.chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });

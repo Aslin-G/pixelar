@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Concatena src/*.js (en orden alfabético) dentro de src/shell.html
-// y produce el único archivo autocontenido: byte_architect_quest.html
+// y produce el único archivo autocontenido: index.html
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -18,6 +18,6 @@ for (const f of files) {
 if (js.includes('</script')) throw new Error('El código no puede contener la secuencia </script');
 
 const out = shell.replace('/*__GAME__*/', () => js);
-const target = path.join(root, 'byte_architect_quest.html');
+const target = path.join(root, 'index.html');
 fs.writeFileSync(target, out);
 console.log(`OK ${target} — ${files.length} módulos, ${(out.length / 1024).toFixed(1)} KB`);

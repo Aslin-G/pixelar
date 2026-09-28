@@ -12,7 +12,7 @@ let playwright;
 try { playwright = require('playwright'); } catch (e) { playwright = require('/opt/node22/lib/node_modules/playwright'); }
 
 const root = path.resolve(__dirname, '..');
-const file = 'file://' + path.join(root, 'byte_architect_quest.html');
+const file = 'file://' + path.join(root, 'index.html');
 const only = process.argv[2] != null ? +process.argv[2] : null;
 
 // referencias estáticas en el código fuente

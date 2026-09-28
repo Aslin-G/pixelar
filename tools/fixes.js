@@ -3,7 +3,8 @@
 //  1) Puente de la Placa Base: E junto al nodo → elegir la conexión correcta → puente activo
 //  2) Modo calma: un enemigo pegado al jugador no hace daño mientras hay un diálogo
 //  3) Escudo del jefe: el jugador recupera el control durante el evento de INTERRUPT SHIELD
-//  4) Boot Camp: tras bajar de la pasarela alta se puede volver atrás (escalera de retorno)
+//  4) Boot Camp: tras bajar de la pasarela alta se puede volver atrás (escalera de retorno y peldaño
+//     a la derecha del bloque del módulo ENTRADA), con física real y teclado
 //  5) Módulo olvidado: la pista y la palanca RUN dicen cuál falta y cómo volver
 //  6) REINICIAR NIVEL (menú de pausa): deshace lo hecho en el nivel y vuelve al inicio sin repetir la introducción
 //  7) Un módulo que cae a pinchos o al vacío vuelve a su sitio
@@ -82,6 +83,20 @@ const ok = (c, m) => console.log((c ? '✓ ' : '✗ ') + m);
   await hold('ArrowUp', 2600); const up = await cell();
   await hold('ArrowLeft', 2600); await hold('ArrowDown', 2600); const back = await cell();
   ok(up.ty <= 6 && back.tx <= 51 && back.ty >= 14, 'Boot Camp: se sube por la escalera de retorno y se vuelve al lado izquierdo ' + JSON.stringify({ up, back }));
+  // …y desde ahí se vuelve a subir al bloque del módulo ENTRADA por el peldaño de la derecha (izquierda + saltos)
+  await page.evaluate(() => { const W = Game.world, p = W.player; p.x = 47 * TS + 3; p.y = 16 * TS - 15; p.vx = p.vy = 0; p.facing = -1; W.cam.snap(p); });
+  await page.waitForTimeout(200);
+  const onTop = [];
+  await page.keyboard.down('ArrowLeft');
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.down('Space'); await page.waitForTimeout(260); await page.keyboard.up('Space');
+    for (let k = 0; k < 3; k++) { await page.waitForTimeout(50); const c = await page.evaluate(() => { const p = Game.world.player; return p.grounded ? Math.floor((p.x + 5) / TS) + ',' + Math.floor((p.y + 14) / TS) : null; }); if (c) onTop.push(c); }
+    if (onTop.some(c => c.endsWith(',11'))) break;
+  }
+  await page.keyboard.up('ArrowLeft'); await page.waitForTimeout(200);
+  if (shots) await page.screenshot({ path: path.join(shots, 'f4_peldano.png') });
+  const top = onTop.find(c => c.endsWith(',11'));
+  ok(onTop.some(c => c.endsWith(',13')) && !!top, 'Boot Camp: desde la derecha se sube por el peldaño al bloque de ENTRADA ' + JSON.stringify([...new Set(onTop)]));
 
   // 5) módulo olvidado
   const miss = await page.evaluate(() => {

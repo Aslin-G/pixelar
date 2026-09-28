@@ -102,8 +102,9 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
 - Puzles de flujo Entrada→Proceso→Memoria→Salida, ciclo FETCH/DECODE/EXECUTE/WRITE BACK con
   bloques de instrucción, compuertas lógicas con palancas, torre de latencias, buses de datos /
   direcciones / control, prioridades de interrupción, cuellos de botella y paralelismo.
-- **Siempre se puede volver atrás**: ningún tramo es de un solo sentido. Las pasarelas altas y la
-  Torre de la Memoria tienen escaleras de retorno, los fragmentos están a la altura de un salto, y
+- **Siempre se puede volver atrás**: ningún tramo es de un solo sentido ni exige un salto más alto
+  que el de BYTE (unas 3 casillas). Los desniveles tienen peldaños por los dos lados, las pasarelas
+  altas y la Torre de la Memoria tienen escaleras de retorno, los fragmentos están a la altura de un salto, y
   un módulo que cae a pinchos o al vacío vuelve a su sitio. Si falta una pieza, la pista [H] y la
   palanca RUN dicen cuál es y dónde quedó; como red de seguridad final, **Pausa → REINICIAR NIVEL**
   devuelve el nivel al estado con el que se entró (el aprendizaje se conserva).
@@ -182,8 +183,8 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `smoke.js` | Recorrido con teclado real: título → prólogo → nivel → terminal → pausa y submenús → CONTINUE → modo docente |
 | `playtest.js` | Bot que juega la historia completa (niveles 00–09, jefe, epílogo, informe y posjuego): en modo estricto sólo actúa sobre lo alcanzable desde donde está el jugador, combate con la contramedida prevista de cada enemigo, comprueba las rutas cargando bloques y hace un barrido final de accesibilidad por nivel |
 | `overlap.js` | Detector de texto superpuesto: registra cada texto dibujado (ignorando lo tapado por paneles) en menús, desafíos, diálogos, cinemáticas y un barrido de cámara por todos los niveles |
-| `backtrack.js` | Vuelta atrás: grafo de movimientos (caminar, saltar, caer, escaleras, plataformas, FETCH DASH) de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos (sin escaleras) |
-| `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno del Boot Camp (física real), aviso del módulo olvidado, REINICIAR NIVEL y módulos que vuelven a su sitio |
+| `backtrack.js` | Vuelta atrás con la **física real** del jugador: simula cada movimiento (caminar, saltos con carrerilla, desde el borde o con giro en el aire, escaleras, plataformas móviles, FETCH DASH) y construye el grafo de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos. Repite el análisis con un margen (saltos ~10 % más bajos) para que volver nunca dependa de un salto perfecto |
+| `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL y módulos que vuelven a su sitio |
 | `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red |
 
 ---

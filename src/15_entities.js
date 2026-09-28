@@ -945,7 +945,13 @@ class Block extends Ent {
     if (this.carried || this.inSocket) return;
     this.vy = Math.min((this.vy || 0) + 900 * dt, 300); this.vx = 0;
     W.move(this, dt);
-    if (this.y > W.h * TS) { this.x = this.home.x; this.y = this.home.y; this.vy = 0; }
+    // un módulo que cae al vacío, a púas o a corrupción vuelve a su sitio (nunca se pierde)
+    const under = W.tile(Math.floor(this.cx / TS), Math.floor((this.y + this.h + 1) / TS)), inside = W.tile(Math.floor(this.cx / TS), Math.floor((this.y + this.h - 2) / TS));
+    if (this.y > W.h * TS || isHazardT(under) || isHazardT(inside)) {
+      W.particles.burst(this.cx, this.cy, 14, { col: [PAL.cyan, PAL.white], kind: 'bit', max: 80 });
+      this.x = this.home.x; this.y = this.home.y; this.vy = 0;
+      UI.toast((this.p.label || 'Módulo') + ' vuelve a su sitio', PAL.cyan);
+    }
   }
   drawAt(g, x, y) {
     g.drawImage(Sprites.objects.blockSprites[this.p.item] || Sprites.objects.blockSprites.LOG, Math.round(x), Math.round(y));

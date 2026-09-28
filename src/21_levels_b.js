@@ -51,10 +51,10 @@ const LEVEL3 = {
       G32, G32
     ],
     [ // C: núcleo de la forja
-      D32, D32, D32, D32, D32, D32, D32, D32, D32, D32, D32,
+      D32, D32, D32, D32, D32, D32, D32, D32, D32, D32, D32, D32,
       '..............*.................',
       '.............===................',
-      D32, D32,
+      D32,
       '..C.......t.....s.....k...c.....',
       G32, G32, G32, G32
     ],
@@ -271,6 +271,10 @@ const L4_MAP = [].concat(
     '#.....................===......#', W30,
     '#.E.........j.........i.C..w...#', '#'.repeat(32)]
 );
+// Escaleras de regreso: una en el borde de cada hueco, del piso de arriba al de abajo.
+// Se sigue bajando por el hueco, y ahora también se puede volver a subir a cualquier piso.
+const L4_LADDERS = [[28, 15, 30], [2, 31, 46], [29, 47, 62], [2, 63, 86], [29, 87, 110]];
+for (const [x, y0, y1] of L4_LADDERS) for (let y = y0; y <= y1; y++) L4_MAP[y] = L4_MAP[y].slice(0, x) + 'H' + L4_MAP[y].slice(x + 1);
 const LEVEL4 = {
   id: 4, key: 'tower', name: 'TORRE DE LA MEMORIA', theme: 'tower', music: 'tower', concepts: ['cache', 'ram', 'storage'],
   musicFn: () => (PROG.flags.nexoAway ? 'lonely' : 'tower'),

@@ -109,6 +109,9 @@ class World {
     if (def.onLoad) def.onLoad(this, !!cp);
     this.entities.forEach(e => e.init && e.init(this));
     this.depthDirty = true;
+    // instantánea para «REINICIAR NIVEL»: al entrar (tras la introducción), salvo al reanudar un nivel que ya la tiene
+    // (checkpoint, muerte o partida guardada: aunque no haya checkpoint, se conserva la del inicio)
+    this.snapPending = !o.restart && !(o.fromCheckpoint && PROG.levelSnap && PROG.levelSnap.level === def.id);
     this.placeProps();
     this.initAmbient();
     const key = 'L' + def.id + '_entered';
@@ -428,6 +431,7 @@ class World {
       for (const [fn, name, b] of pend) this.scripts.run(fn, { name, blocking: b });
     }
     this.t += dt; this.levelTime += dt;
+    if (this.snapPending && focus && !this.scripts.busy && this.lockCount === 0) { this.snapPending = false; takeLevelSnap(this.index); }
     if (focus) { LearningModel.tick(dt); PROG.stats.time += dt; }
     this.scripts.update(dt);
     // MODO CALMA: mientras se lee (diálogo, registro, desafío, elección o escena bloqueada)

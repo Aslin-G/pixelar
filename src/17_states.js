@@ -257,13 +257,31 @@ class MenuState {
   }
 }
 class ConfirmState extends MenuState {
-  constructor(q, onYes, onNo) {
-    super(q, [{ label: 'SÍ', fn: () => { Game.pop(); onYes(); } }, { label: 'NO', fn: () => { Game.pop(); if (onNo) onNo(); } }], { onBack: () => { Game.pop(); if (onNo) onNo(); }, w: Math.max(200, Font.measure(q) + 40), col: PAL.amber });
+  constructor(q, onYes, onNo, footer) {
+    super(q, [{ label: 'SÍ', fn: () => { Game.pop(); onYes(); } }, { label: 'NO', fn: () => { Game.pop(); if (onNo) onNo(); } }], { onBack: () => { Game.pop(); if (onNo) onNo(); }, w: Math.max(200, Font.measure(q) + 40), col: PAL.amber, footer });
     this.sel = 1;
   }
 }
 
 // ---------------------------------------------------------------- PAUSA ----
+// ---------- Reiniciar el nivel: instantánea del progreso al empezar el nivel ----------
+// Red de seguridad universal: si algo se queda atrás, se puede volver a empezar el nivel
+// con el estado con el que se entró (tras su introducción). El aprendizaje y las estadísticas no se tocan.
+const LEVEL_SNAP_FIELDS = ['flags', 'abilities', 'selAbility', 'quests', 'codex', 'blueprint', 'bpTabs', 'fragments', 'letters', 'historic', 'choices', 'trust', 'xp', 'playerLevel', 'hp', 'maxHp'];
+function takeLevelSnap(n) {
+  const d = {};
+  for (const k of LEVEL_SNAP_FIELDS) if (PROG[k] !== undefined) d[k] = JSON.parse(JSON.stringify(PROG[k]));
+  PROG.levelSnap = { level: n, data: d };
+}
+function restartLevel() {
+  const n = PROG.level, snap = PROG.levelSnap;
+  if (snap && snap.level === n) for (const k in snap.data) PROG[k] = JSON.parse(JSON.stringify(snap.data[k]));
+  PROG.checkpoint = null;
+  UI.toasts.length = 0; // avisos del intento anterior (módulos, XP…) ya no aplican
+  Sprites.buildByte(Progression.upgFor(PROG.playerLevel));
+  Game.loadLevel(n, { restart: true });
+  UI.toast('NIVEL REINICIADO', PAL.cyan);
+}
 class PauseState extends MenuState {
   constructor(gp) {
     super('PAUSA', [], { onBack: () => Game.pop() });
@@ -278,6 +296,7 @@ class PauseState extends MenuState {
       { label: 'CONTROLS', fn: () => Game.push(new ControlsState()) },
       { label: 'SETTINGS', fn: () => Game.push(new SettingsState()) },
       { label: 'RESTART CHECKPOINT', fn: () => Game.push(new ConfirmState('¿Volver al último checkpoint?', () => { Game.loadLevel(PROG.level, { fromCheckpoint: true }); })) },
+      { label: 'REINICIAR NIVEL', fn: () => Game.push(new ConfirmState('¿Reiniciar el nivel desde el principio?', () => restartLevel(), null, 'Se deshace lo hecho en este nivel; tu aprendizaje se conserva.')) },
       { label: 'MAIN MENU', fn: () => Game.push(new ConfirmState('¿Salir al menú? (se guarda el progreso)', () => { Game.save(); AudioSys.playMusic('title'); Game.replace(new TitleState()); })) }
     ];
   }

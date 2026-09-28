@@ -3,6 +3,10 @@
 //  1) Puente de la Placa Base: E junto al nodo → elegir la conexión correcta → puente activo
 //  2) Modo calma: un enemigo pegado al jugador no hace daño mientras hay un diálogo
 //  3) Escudo del jefe: el jugador recupera el control durante el evento de INTERRUPT SHIELD
+//  4) Boot Camp: tras bajar de la pasarela alta se puede volver atrás (escalera de retorno)
+//  5) Módulo olvidado: la pista y la palanca RUN dicen cuál falta y cómo volver
+//  6) REINICIAR NIVEL (menú de pausa): deshace lo hecho en el nivel y vuelve al inicio sin repetir la introducción
+//  7) Un módulo que cae a pinchos o al vacío vuelve a su sitio
 // Uso: node tools/fixes.js [dir_capturas]
 'use strict';
 const path = require('path');
@@ -20,6 +24,8 @@ const ok = (c, m) => console.log((c ? '✓ ' : '✗ ') + m);
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(file); await page.waitForTimeout(500);
   const key = async (k, ms = 60) => { await page.keyboard.down(k); await page.waitForTimeout(ms); await page.keyboard.up(k); await page.waitForTimeout(90); };
+  // termina la introducción del nivel: pasa los diálogos y espera a que el guion suelte el control
+  const finishIntro = async () => { for (let i = 0; i < 400; i++) { const st = await page.evaluate(() => ({ top: Game.top().constructor.name, busy: Game.world.scripts.busy || Game.world.lockCount > 0 })); if (st.top === 'GameplayState' && !st.busy) return; if (st.top === 'GameplayState') await page.waitForTimeout(120); else await key('Enter', 40); } };
   const clearDialogs = async () => { for (let i = 0; i < 60; i++) { const t = await page.evaluate(() => Game.top().constructor.name); if (t === 'GameplayState') return; await key('Enter', 40); } };
 
   // 1) puente
@@ -65,6 +71,59 @@ const ok = (c, m) => console.log((c ? '✓ ' : '✗ ') + m);
     return { evt, control };
   });
   ok(shield.evt && shield.control, 'durante el evento del escudo el jugador tiene el control ' + JSON.stringify(shield));
+
+  // 4) Boot Camp: vuelta atrás por la escalera de retorno (física real, teclado)
+  const cell = () => page.evaluate(() => { const p = Game.world.player; return { tx: Math.floor((p.x + 5) / TS), ty: Math.floor((p.y + 14) / TS) }; });
+  const hold = async (k, ms) => { await page.keyboard.down(k); await page.waitForTimeout(ms); await page.keyboard.up(k); await page.waitForTimeout(200); };
+  await page.evaluate(() => { startTeacherLevel(0); });
+  await finishIntro(); await page.waitForTimeout(200);
+  await page.evaluate(() => { const W = Game.world, p = W.player; p.x = 66 * TS + 3; p.y = 16 * TS - 15; p.vx = p.vy = 0; W.cam.snap(p); });
+  await page.waitForTimeout(200);
+  await hold('ArrowUp', 2600); const up = await cell();
+  await hold('ArrowLeft', 2600); await hold('ArrowDown', 2600); const back = await cell();
+  ok(up.ty <= 6 && back.tx <= 51 && back.ty >= 14, 'Boot Camp: se sube por la escalera de retorno y se vuelve al lado izquierdo ' + JSON.stringify({ up, back }));
+
+  // 5) módulo olvidado
+  const miss = await page.evaluate(() => {
+    const W = Game.world, p = W.player;
+    const b = W.ent('bProc'); for (const x of W.entities) if (x.kind === 'block' && x !== b && x.id !== 'bOut') L0_toBuffer(W, x);
+    p.x = 110 * TS; p.y = 16 * TS - 15; p.vx = p.vy = 0;
+    const h = W.def.hint(W);
+    W.v.barkTxt = null; const bark0 = W.bark; let said = '';
+    W.bark = (who, txt) => { said = txt; };
+    W.run(L0_runFlow, 'runtest'); for (let k = 0; k < 60; k++) Game.update(1 / 60);
+    W.bark = bark0;
+    return { hint: h && h.text, tx: h && Math.floor(h.x / TS), bx: Math.floor(b.cx / TS), said };
+  });
+  ok(miss.hint && miss.hint.includes('PROCESO') && miss.tx === miss.bx && miss.said.includes('PROCESO'), 'la pista y RUN señalan el módulo olvidado ' + JSON.stringify(miss));
+
+  // 6) REINICIAR NIVEL desde el menú de pausa
+  const before = await page.evaluate(() => ({ snap: PROG.levelSnap && PROG.levelSnap.level, bufProc: Game.world.has('L0_buf_PROCESS'), bufIn: Game.world.has('L0_buf_INPUT') }));
+  await key('Escape'); await page.waitForTimeout(200);
+  const items = await page.evaluate(() => Game.top().items.map(i => i.label));
+  for (let i = 0; i < items.indexOf('REINICIAR NIVEL'); i++) await key('ArrowDown');
+  await key('Enter'); await page.waitForTimeout(200);
+  if (shots) await page.screenshot({ path: path.join(shots, 'f6_confirm.png') });
+  await key('ArrowUp'); await key('Enter'); await page.waitForTimeout(600);
+  const after = await page.evaluate(() => {
+    const W = Game.world, p = W.player;
+    return { top: Game.top().constructor.name, level: PROG.level, bufIn: W.has('L0_buf_INPUT'), atSpawn: Math.abs(p.x - W.spawn.x) < 24, intro: W.scripts.busy };
+  });
+  if (shots) await page.screenshot({ path: path.join(shots, 'f6_reiniciado.png') });
+  ok(before.snap === 0 && before.bufIn && after.top === 'GameplayState' && after.level === 0 && !after.bufIn && after.atSpawn && !after.intro, 'REINICIAR NIVEL deshace el nivel y vuelve al inicio ' + JSON.stringify({ before, after }));
+
+  // 7) módulo en pinchos → vuelve a su sitio
+  const home = await page.evaluate(() => {
+    const W = Game.world, b = W.ent('bIn'), hx = b.home.x, hy = b.home.y;
+    const tx = Math.floor(b.cx / TS) + 3, ty = Math.floor((b.y + b.h + 1) / TS);
+    W.setTile(tx, ty, T.SPIKE); b.x = tx * TS + 1; b.y = ty * TS - b.h - 4; b.vy = 0;
+    for (let k = 0; k < 40; k++) Game.update(1 / 60);
+    const r = { back: Math.abs(b.x - hx) < 1 && Math.abs(b.y - hy) < 2 };
+    b.x = hx; b.y = W.h * TS + 20; for (let k = 0; k < 5; k++) Game.update(1 / 60);
+    r.fromVoid = Math.abs(b.x - hx) < 1 && Math.abs(b.y - hy) < 2;
+    return r;
+  });
+  ok(home.back && home.fromVoid, 'un módulo en pinchos o en el vacío vuelve a su sitio ' + JSON.stringify(home));
   ok(!errors.length, 'sin errores ' + errors.slice(0, 3).join(' | '));
   await browser.close();
 })();

@@ -35,6 +35,8 @@ const L0_RACK = { bMem: 113, bIn: 115, bProc: 116 };
 function L0_rackPlace(W, b) {
   b.x = L0_RACK[b.id] * TS; b.y = 16 * TS - b.h; b.vy = 0; b.home = { x: b.x, y: b.y };
 }
+// módulos que aún no se han recogido (siguen en su sitio original por el camino)
+function L0_missing(W) { return ['bIn', 'bProc', 'bMem'].map(id => W.ent(id)).filter(b => b && !W.has('L0_buf_' + b.p.item) && !b.carried && !b.inSocket); }
 function L0_toBuffer(W, b) {
   if (W.has('L0_buf_' + b.p.item)) return;
   W.player.carry = null; b.carried = false;
@@ -79,9 +81,9 @@ const LEVEL0 = {
       '...........====....#....',
       '...................#....',
       '...............p.OO#....',
-      '...H####===========#....',
-      '...H####................', '...H####................', '...H####................', '...H####................', '...H####................',
-      '.LLH####................', '.LLH####................', '.LLH####................',
+      '...H####==========H#....',
+      '...H####..........H.....', '...H####..........H.....', '...H####..........H.....', '...H####..........H.....', '...H####..........H.....',
+      '.LLH####..........H.....', '.LLH####..........H.....', '.LLH####..........H.....',
       '#'.repeat(24), '#'.repeat(24), '#'.repeat(24), '#'.repeat(24)
     ],
     [ // D: dron de entrenamiento, bloque MEMORIA, primera anomalía
@@ -215,8 +217,14 @@ const LEVEL0 = {
     }
   },
   hint(W) {
+    // módulo olvidado por el camino: decir cuál es, dónde está y cómo volver
+    const missing = L0_missing(W);
+    if (!W.has('L0_flow') && missing.length && W.player.x >= 96 * TS) {
+      const b = missing[0];
+      return { text: 'Falta el módulo ' + b.p.label + ': sigue donde lo dejaste, más atrás. Puedes volver: en la pasarela alta hay escaleras a ambos lados.', x: b.cx, y: b.y };
+    }
     if (!W.has('term_t_hw') && !W.has('L0_flow')) {
-      const blocks = ['bIn', 'bProc', 'bMem'].map(id => W.ent(id)).filter(b => b && !b.carried && !b.inSocket && b.x < 100 * TS);
+      const blocks = missing.filter(b => b.x < 100 * TS);
       if (W.player.x < 96 * TS && blocks.length) { const b = blocks[0]; return { text: 'Recoge los módulos del camino: se copian al búfer de la Sala del Sistema. Ese de ahí es el ' + b.p.label + '.', x: b.cx, y: b.y }; }
       const t = W.ent('t_hw'); return { text: 'La puerta se abre al clasificar el inventario en la terminal.', x: t.cx, y: t.y };
     }
@@ -230,7 +238,8 @@ function* L0_runFlow(W) {
   const socks = [1, 2, 3, 4].map(i => W.ent('so' + i));
   if (W.has('L0_flow')) { lever.on = true; return; }
   if (socks.some(s => !s.item)) {
-    W.bark('NEXO', 'Faltan módulos en el flujo: las cuatro ranuras deben estar ocupadas.', 'CURIOUS');
+    const miss = L0_missing(W);
+    W.bark('NEXO', miss.length ? 'Falta el módulo ' + miss.map(b => b.p.label).join(' y ') + ': se quedó por el camino. Vuelve a por él (pulsa [' + Input.label('hint') + '] para ver dónde).' : 'Faltan módulos en el flujo: las cuatro ranuras deben estar ocupadas.', 'CURIOUS', 6);
     yield 0.4; lever.on = false; return;
   }
   W.lock();
@@ -531,10 +540,10 @@ const LEVEL2 = {
     [ // D: WRITE BACK y banco de registros
       D32, D32, D32, D32, D32, D32, D32, D32,
       '..........y.....................',
-      D32, D32,
+      D32, D32, D32,
       '.........................*......',
       '........................===.....',
-      D32, D32,
+      D32,
       '.....w.......R......n...........',
       G32, G32, G32, G32
     ],

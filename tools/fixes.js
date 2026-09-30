@@ -10,6 +10,7 @@
 //  7) Un módulo que cae a pinchos o al vacío vuelve a su sitio
 //  8) Una puerta ya abierta sigue abierta al volver de un checkpoint o de una muerte
 //  9) La pista [H] del Distrito de E/S ya no rompe la partida
+// 10) Núcleo del Procesador: la pista señala la instrucción tras EXECUTE y se lleva a WRITE BACK
 // Uso: node tools/fixes.js [dir_capturas]
 'use strict';
 const path = require('path');
@@ -162,6 +163,30 @@ const ok = (c, m) => console.log((c ? '✓ ' : '✗ ') + m);
     return { text: h && h.text, x: h && h.x != null };
   });
   ok(hint6.text && hint6.x, 'pista del Distrito de E/S (señala a IO) ' + JSON.stringify(hint6));
+
+  // 10) Núcleo del Procesador: tras EXECUTE, la pista señala la instrucción (no el zócalo vacío) y se
+  //     puede llevar a pie, con teclado, hasta WRITE BACK
+  await page.evaluate(() => {
+    startTeacherLevel(2);
+    const W = Game.world; W.pending.length = 0;
+    const adv = n => { for (let k = 0; k < n; k++) { const t = Game.top(), nm = t.constructor.name; if (nm === 'DialogueState') { t.chars = t.full; t.pause = 0; t.next(); } else if (nm === 'ChallengeState' && (t.phase === 'play' || t.phase === 'conf')) { t.resultOk = true; t.record(true); t.phase = 'result'; t.afterResult(); } Game.update(1 / 60); } };
+    adv(20);
+    const b = W.ent('i4'), p = W.player;
+    for (const s of ['sF', 'sD', 'sX']) { const so = W.ent(s); p.x = b.cx - 5; p.y = b.y + b.h - 15; b.interact(W); p.x = so.cx - 5; p.y = so.y + so.h - 15; so.interact(W); adv(200); }
+    W.ent('t_clock').solved = true; W.flag('term_t_clock'); W.openDoor('d1');
+    for (const t of W.entities) if (t.kind === 'trigger') t.fired = true; // (el diálogo de la torre ya se vio)
+    p.x = W.ent('sW').cx + 20; p.y = W.ent('sW').y + W.ent('sW').h - 15; p.vx = p.vy = 0; W.cam.snap(p); adv(10);
+  });
+  await page.keyboard.press('KeyH'); await page.waitForTimeout(300);
+  const h10 = await page.evaluate(() => { const W = Game.world, st = Game.top(), b = W.ent('i4'); return { bark: W.barks.length ? W.barks[0].t : '', arrowAtBlock: !!(st.hintArrow && Math.abs(st.hintArrow.x - b.cx) < 4) }; });
+  if (shots) await page.screenshot({ path: path.join(shots, 'f10_pista.png') });
+  // caminar hasta la instrucción, tomarla, llevarla a WRITE BACK y colocarla (teclado real)
+  const walkTo = async (tx) => { for (let i = 0; i < 40; i++) { const px = await page.evaluate(() => Game.world.player.cx); if (Math.abs(px - tx) < 5) break; await page.keyboard.down(tx < px ? 'ArrowLeft' : 'ArrowRight'); await page.waitForTimeout(Math.min(600, Math.abs(tx - px) * 8)); await page.keyboard.up(tx < px ? 'ArrowLeft' : 'ArrowRight'); } };
+  await walkTo(await page.evaluate(() => Game.world.ent('i4').cx)); await page.keyboard.press('KeyE'); await page.waitForTimeout(200);
+  const carrying = await page.evaluate(() => Game.world.ent('i4').carried);
+  await walkTo(await page.evaluate(() => Game.world.ent('sW').cx)); await page.keyboard.press('KeyE'); await page.waitForTimeout(600);
+  const wb = await page.evaluate(() => ({ top: Game.top().constructor.name, inSocket: !!Game.world.ent('i4').inSocket }));
+  ok(/instrucción «ADD = 8»/.test(h10.bark) && h10.arrowAtBlock && carrying && wb.inSocket && wb.top === 'ChallengeState', 'Núcleo: la pista señala la instrucción y se lleva a pie hasta WRITE BACK ' + JSON.stringify({ arrow: h10.arrowAtBlock, carrying, wb }));
 
   ok(!errors.length, 'sin errores ' + errors.slice(0, 3).join(' | '));
   await browser.close();

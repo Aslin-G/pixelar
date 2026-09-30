@@ -566,7 +566,7 @@ const LEVEL2 = {
   legend: {
     o: { type: 'deco', deco: 'gear', speed: 1.2 },
     1: { type: 'block', item: 'INSTR', label: '0x03: LOAD R1', addr: '0x03', id: 'i3' },
-    2: { type: 'block', item: 'INSTR', label: '0x04: ADD R1,R2', addr: '0x04', id: 'i4' },
+    2: { type: 'block', item: 'INSTR', label: '0x04: ADD R1,R2', addr: '0x04', id: 'i4', always: true },
     3: { type: 'block', item: 'INSTR', label: '0x05: JUMP 0x00', addr: '0x05', id: 'i5' },
     z: { type: 'screen', id: 'pc', sw: 3, sh: 2 },
     f: { type: 'socket', id: 'sF', label: 'FETCH → IR', onPlace: (W, so, b) => L2_station(W, so, b, 0) },
@@ -629,9 +629,20 @@ const LEVEL2 = {
       ], { id: 'L2_core' });
     }
   },
+  update(W) {
+    const p = W.player;
+    if (p.x > 131 * TS && p.x < 136 * TS && !PROG.abilities.includes('fetchDash') && !W.v.abyssTold) {
+      W.v.abyssTold = true;
+      W.bark(guide(), 'Este abismo sólo se cruza con FETCH DASH, saltando de marcador en marcador. Se libera al completar el ciclo: falta WRITE BACK.', 'CURIOUS', 6);
+    } else if (p.x < 128 * TS) W.v.abyssTold = false;
+  },
   hint(W) {
     const b = W.ent('i4');
     if (!W.has('L2_fetch')) return { text: 'El PC vale 0x04: busca en los estantes la instrucción de esa dirección y llévala al zócalo FETCH.', x: b.cx, y: b.y };
+    // es la MISMA instrucción la que recorre todas las etapas: si no la llevas, la pista señala dónde quedó
+    const next = [['L2_decode', 'DECODE'], ['L2_execute', 'EXECUTE'], ['L2_cycle', 'WRITE BACK']].find(([f]) => !W.has(f));
+    if (next && !b.carried && !(next[0] === 'L2_cycle' && !W.has('term_t_clock')))
+      return { text: 'Recoge la instrucción «' + b.p.label + '» (está aquí, junto a la última etapa que completaste) y llévala a ' + next[1] + '. Es la misma instrucción la que pasa por todas las etapas.', x: b.cx, y: b.y };
     if (!W.has('L2_decode')) return { text: 'Lleva la instrucción al zócalo DECODE. Las plataformas se mueven con el reloj: salta cuando estén cerca.', x: W.ent('sD').cx, y: W.ent('sD').y };
     if (!W.has('L2_execute')) return { text: 'Ahora EXECUTE: la ALU debe calcular la suma.', x: W.ent('sX').cx, y: W.ent('sX').y };
     if (!W.has('term_t_clock')) return { text: 'Sincroniza el reloj en la terminal de la torre para abrir el paso.', x: W.ent('t_clock').cx, y: W.ent('t_clock').y };
@@ -648,6 +659,10 @@ function L2_station(W, so, b, step) {
     ejectBlock(W, so, b, ['', 'Antes de decodificar hay que traer la instrucción: primero FETCH.', 'No se puede ejecutar lo que aún no se ha decodificado.', 'Primero hay que ejecutar para tener un resultado que escribir.'][step]);
     return;
   }
+  if (step > 0 && b.id !== 'i4') {
+    ejectBlock(W, so, b, 'Ésta no es la instrucción en curso. La que se trajo en FETCH fue ADD R1,R2 (0x04): cada etapa del ciclo trabaja sobre esa misma instrucción.');
+    return;
+  }
   if (step === 0 && b.p.addr !== '0x04') {
     ejectBlock(W, so, b, 'El PC vale 0x04, pero esta instrucción está en ' + b.p.addr + '. El Contador de Programa indica DÓNDE está la siguiente instrucción.');
     LearningModel.record({ concept: 'registers', chId: 'L2_pc', correct: false, firstTry: false, hints: 0, time: 10, expected: 20, conf: null, difficulty: 1, prompt: 'Elegir la instrucción que indica el PC' });
@@ -660,18 +675,18 @@ function L2_station(W, so, b, step) {
     if (step === 0) {
       if (!W.v.pcFail) LearningModel.record({ concept: 'registers', chId: 'L2_pc', correct: true, firstTry: true, hints: 0, time: 10, expected: 20, conf: null, difficulty: 1, prompt: 'Elegir la instrucción que indica el PC' });
       so.lit = PAL.green; W.sfx('correct');
-      yield* W.say([['NEXO', 'FETCH completado: la instrucción de 0x04 está ahora en el *Registro de Instrucción* (IR). El PC avanza a 0x05.', 'HAPPY']], { id: 'L2_fetch' });
+      yield* W.say([['NEXO', 'FETCH completado: la instrucción de 0x04 está ahora en el *Registro de Instrucción* (IR). El PC avanza a 0x05.', 'HAPPY'], ['NEXO', 'Vuelve a tomarla: esa misma instrucción tiene que pasar ahora por *DECODE*, al otro lado de las plataformas del reloj.', 'CURIOUS']], { id: 'L2_fetch' });
       W.screenMsg('pc', 'PC = 0x05', PAL.amber, 1e9);
       W.codex('pc');
       b.p.label = 'ADD R1,R2 (IR)';
     } else if (step === 1) {
       const r = yield* W.challenge('fde05', { source: 'terminal', title: 'DECODE' });
       ok = r.ok;
-      if (ok) { so.lit = PAL.green; b.p.label = 'ADD → ALU'; W.codex('cu'); yield* W.say([['NEXO', 'DECODE: es un ADD. La Unidad de Control ya sabe a quién llamar: a la ALU.', 'HAPPY']], { id: 'L2_decode' }); }
+      if (ok) { so.lit = PAL.green; b.p.label = 'ADD → ALU'; W.codex('cu'); yield* W.say([['NEXO', 'DECODE: es un ADD. La Unidad de Control ya sabe a quién llamar: a la ALU.', 'HAPPY'], ['NEXO', 'Recógela y llévala a *EXECUTE*, la ALU, justo más adelante.', 'CURIOUS']], { id: 'L2_decode' }); }
     } else if (step === 2) {
       const r = yield* W.challenge('alu06', { source: 'terminal', title: 'EXECUTE' });
       ok = r.ok;
-      if (ok) { so.lit = PAL.green; b.p.label = 'ADD = 8'; yield* W.say([['NEXO', 'EXECUTE: la ALU sumó R1 y R2. El resultado existe... pero todavía no está guardado en ningún sitio.', 'CURIOUS']], { id: 'L2_exec' }); }
+      if (ok) { so.lit = PAL.green; b.p.label = 'ADD = 8'; yield* W.say([['NEXO', 'EXECUTE: la ALU sumó R1 y R2. El resultado existe... pero todavía no está guardado en ningún sitio.', 'CURIOUS'], ['NEXO', 'Toma otra vez la instrucción («ADD = 8») y llévala al último paso, *WRITE BACK*, pasada la torre del reloj.', 'HAPPY']], { id: 'L2_exec' }); }
     } else if (step === 3) {
       const r = yield* W.challenge({ id: 'L2_wb', concept: 'fetchDecodeExecute', difficulty: 2, type: 'choice', kind: 'WRITE BACK', noPick: true,
         prompt: 'La instrucción es *ADD R1, R2*: el primer operando es también el destino. ¿Dónde se escribe el resultado (8)?',

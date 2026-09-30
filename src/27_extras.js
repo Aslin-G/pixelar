@@ -289,11 +289,13 @@ function drawPrefetchRadar(g, W) {
 // ---------------------------------------------------------------- MÁS ENEMIGOS POR REGIÓN ----
 // [tipo, casilla x, casilla y (donde se apoya), propiedades]. Lejos del inicio, de terminales y puzles.
 LEVEL0.spawns = [['bitcorrupt', 23, 15, { hp: 2, range: 3, bits: '101' }], ['bitcorrupt', 61, 15, { hp: 2, range: 3, bits: '011' }], ['bitcorrupt', 90, 15, { hp: 3, range: 4 }]];
-LEVEL1.spawns = [['bitcorrupt', 18, 15, { hp: 3, range: 4 }], ['trojan', 35, 15, { range: 5 }], ['bitcorrupt', 82, 15, { hp: 3, range: 5 }], ['bitcorrupt', 125, 12, { hp: 2, range: 3 }]];
-LEVEL2.spawns = [['stack', 18, 15, {}], ['bitcorrupt', 30, 15, { hp: 3, range: 4 }], ['stack', 95, 15, {}], ['bitcorrupt', 101, 15, { hp: 3, range: 4 }]];
+// (en las regiones con bloques que se llevan en brazos, los enemigos quedan fuera de esos caminos:
+//  cargando no se puede disparar)
+LEVEL1.spawns = [['bitcorrupt', 18, 15, { hp: 3, range: 4 }], ['trojan', 35, 15, { range: 5 }], ['bitcorrupt', 82, 15, { hp: 3, range: 5 }], ['bitcorrupt', 93, 12, { hp: 2, range: 3 }]];
+LEVEL2.spawns = [['bitcorrupt', 111, 15, { hp: 3, range: 2 }], ['stack', 125, 15, {}]];
 LEVEL3.spawns = [['stack', 34, 15, {}], ['bitcorrupt', 51, 15, { hp: 4, range: 5 }], ['bitcorrupt', 96, 15, { hp: 4, range: 5 }], ['stack', 150, 15, {}]];
 LEVEL4.spawns = [['memoryleak', 18, 14, { range: 5 }], ['memoryleak', 16, 62, { range: 6 }], ['memoryleak', 11, 86, { range: 5 }]];
-LEVEL5.spawns = [['bitcorrupt', 75, 15, { hp: 3, range: 5 }], ['memoryleak', 90, 15, { range: 5 }], ['bitcorrupt', 162, 15, { hp: 4, range: 5 }]];
+LEVEL5.spawns = [['bitcorrupt', 72, 15, { hp: 3, range: 4 }], ['memoryleak', 84, 15, { range: 4 }], ['bitcorrupt', 96, 15, { hp: 4, range: 4 }]];
 LEVEL6.spawns = [['trojan', 30, 15, { range: 5 }], ['bitcorrupt', 57, 15, { hp: 3, range: 3 }], ['trojan', 98, 15, { range: 5 }], ['memoryleak', 130, 15, { range: 6 }], ['bitcorrupt', 148, 15, { hp: 4, range: 5 }]];
 LEVEL7.spawns = [['memoryleak', 18, 15, { range: 5 }], ['bitcorrupt', 87, 15, { hp: 4, range: 5 }], ['stack', 128, 15, {}]];
 LEVEL8.spawns = [['memoryleak', 59, 12, { range: 3 }], ['trojan', 87, 15, { range: 5 }], ['stack', 47, 18, {}], ['memoryleak', 150, 13, { range: 4 }]];

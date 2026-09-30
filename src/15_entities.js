@@ -1042,7 +1042,7 @@ class Block extends Ent {
     if (this.carried) return;
     this.drawAt(g, this.x, this.y);
     const near = W.player && Math.abs(W.player.cx - this.cx) < 40 && Math.abs(W.player.y - this.y) < 30;
-    if (near || this.inSocket) W.label(this.p.label || this.p.item, this.cx, this.y - 12, Sprites.objects.block[this.p.item] || PAL.white, { prio: 3 });
+    if (near || this.inSocket || this.p.always) W.label(this.p.label || this.p.item, this.cx, this.y - 12, Sprites.objects.block[this.p.item] || PAL.white, { prio: 3 });
   }
 }
 class Socket extends Ent {

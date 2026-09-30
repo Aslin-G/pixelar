@@ -21,7 +21,7 @@ class Player {
   constructor(W, x, y) {
     this.x = x; this.y = y; this.w = 10; this.h = 15; this.vx = 0; this.vy = 0; this.facing = 1;
     this.grounded = false; this.coyote = 0; this.jumpBuf = 0; this.dropT = 0; this.climbing = false; this.jumping = false;
-    this.hp = PROG.maxHp; this.energy = Progression.maxEnergy(); this.invuln = 0; this.hurtT = 0; this.dead = false;
+    this.hp = Chips.maxHp(); this.energy = Progression.maxEnergy(); this.postShield = Chips.on('post'); this.invuln = 0; this.hurtT = 0; this.dead = false;
     this.anim = 'idle'; this.animT = 0; this.cds = {}; this.boostT = 0; this.shieldT = 0; this.dashT = 0; this.dashTarget = null;
     this.carry = null; this.canRide = true; this.lastSafe = { x, y }; this.safeT = 0; this.auto = null; this.attackCd = 0; this.stepT = 0;
     this.slowT = 0; this.landT = 0; this.celebrateT = 0; this.analyzeT = 0; this.interactT = 0; this.abilityPose = 0; this.recall = null;
@@ -29,6 +29,7 @@ class Player {
   }
   get cx() { return this.x + this.w / 2; }
   update(W, dt, control) {
+    this.prevY = this.y; // para detectar pisotones (venía desde arriba)
     for (const k in this.cds) this.cds[k] = Math.max(0, this.cds[k] - dt);
     this.invuln = Math.max(0, this.invuln - dt); this.hurtT = Math.max(0, this.hurtT - dt); this.landT = Math.max(0, this.landT - dt);
     this.boostT = Math.max(0, this.boostT - dt); this.shieldT = Math.max(0, this.shieldT - dt); this.slowT = Math.max(0, this.slowT - dt);
@@ -36,7 +37,7 @@ class Player {
     this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
-    this.energy = Math.min(maxE, this.energy + dt * 13);
+    this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1));
     if (this.recall) { this.recall.t -= dt; if (this.recall.t <= 0) { this.recall = null; UI.toast('REGISTRO R7 LIBERADO', PAL.gray); } }
     this.animT += dt;
     if (this.dead) return;
@@ -90,7 +91,7 @@ class Player {
     }
     // MOVIMIENTO HORIZONTAL
     const slowed = this.slowT > 0 && this.boostT <= 0;
-    const maxS = 106 * (this.boostT > 0 ? 1.45 : 1) * (slowed ? 0.5 : 1) * (this.carry ? 0.9 : 1);
+    const maxS = 106 * (this.boostT > 0 ? 1.45 : 1) * (slowed ? 0.5 : 1) * (this.carry ? 0.9 : 1) * (Chips.on('overclock') ? 1.15 : 1);
     if (this.hurtT <= 0) {
       if (dir) {
         const acc = this.grounded ? 1000 : 650;
@@ -145,6 +146,14 @@ class Player {
     if (this.dead || W.calm || (this.graceT > 0 && !env)) return;
     if (!env && (this.invuln > 0 || this.dashT > 0)) return;
     if (env && this.invuln > 0.9) return;
+    // chip POST: el escudo absorbe un golpe
+    if (this.postShield) {
+      this.postShield = false; this.invuln = 1;
+      AudioSys.play('shield'); W.particles.burst(this.cx, this.y + 7, 18, { col: [PAL.cyan, PAL.white], max: 90 });
+      floatText(W, this.cx, this.y - 10, 'POST: GOLPE ABSORBIDO', PAL.cyan);
+      if (!env) { this.vx = sign(this.cx - srcX || 1) * 120; this.vy = -150; }
+      return;
+    }
     AudioSys.play('hurt');
     W.shake(3, 0.25); W.flash(PAL.red, 0.15);
     this.hurtT = 0.28; this.invuln = 1.1;
@@ -152,16 +161,24 @@ class Player {
     if (Settings.data.assist) return;
     this.hp -= dmg; W.damageTaken = true;
     if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5);
+    if (this.hp <= 0 && Chips.on('watchdog') && !W.v.watchdogUsed) {
+      W.v.watchdogUsed = true; this.hp = 2; this.invuln = 2;
+      AudioSys.play('levelup'); W.flash(PAL.green, 0.3); UI.toast('WATCHDOG: REINICIO DE EMERGENCIA (2 ♥)', PAL.green);
+      W.particles.burst(this.cx, this.y + 8, 30, { col: [PAL.green, PAL.white], kind: 'bit', max: 100 });
+      return;
+    }
     if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
   }
-  heal(n) { this.hp = Math.min(PROG.maxHp, this.hp + n); }
+  heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }
   dash(dir) { this.dashT = 0.16; this.dashTarget = null; this.vx = dir * 330; this.invuln = Math.max(this.invuln, 0.2); }
   dashTo(x, y) { this.dashT = 0.8; this.dashTarget = { x, y }; this.invuln = Math.max(this.invuln, 0.3); }
   attack(W) {
     if (this.attackCd > 0 || this.carry) return;
-    this.attackCd = 0.28; this.abilityPose = 0.15;
+    this.attackCd = Chips.on('pipeline') ? 0.175 : 0.28; this.abilityPose = 0.15;
     AudioSys.play('attack');
-    W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + 7, this.facing * 280, 0, { owner: 'player', dmg: 1, life: 0.42, col: PAL.cyan }));
+    const o = { owner: 'player', dmg: 1, life: Chips.on('alu') ? 0.59 : 0.42, col: PAL.cyan, pierce: Chips.on('alu') ? 1 : 0 };
+    if (Chips.on('bus64')) for (const dy of [4, 10]) W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + dy, this.facing * 280, 0, Object.assign({}, o)));
+    else W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + 7, this.facing * 280, 0, o));
     if (W.clone && !W.clone.dead) W.clone.attack(W);
   }
   findInteract(W) {
@@ -331,19 +348,32 @@ class NullFigure {
 
 // ---------------------------------------------------------------- PROYECTILES Y EFECTOS ----
 class Projectile {
-  constructor(x, y, vx, vy, o) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; Object.assign(this, { owner: 'enemy', dmg: 1, life: 2, col: PAL.red, w: 6, h: 4 }, o); this.dead = false; this.frozen = 0; }
+  constructor(x, y, vx, vy, o) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; Object.assign(this, { owner: 'enemy', dmg: 1, life: 2, col: PAL.red, w: 6, h: 4, pierce: 0, kind: null }, o); this.dead = false; this.frozen = 0; this.t = 0; }
   update(W, dt) {
     if (this.frozen > 0) { this.frozen -= dt; if (this.frozen <= 0) { this.dead = true; W.particles.burst(this.x, this.y, 6, { col: PAL.red }); } return; }
-    this.x += this.vx * dt; this.y += this.vy * dt; this.life -= dt;
+    this.x += this.vx * dt; this.y += this.vy * dt; this.life -= dt; this.t += dt;
     if (this.life <= 0) { this.dead = true; return; }
     if (W.solidAt(this.x, this.y)) { this.dead = true; W.particles.burst(this.x, this.y, 5, { col: this.col, max: 50 }); return; }
     if (this.owner === 'player') {
+      // choque de paquetes: un disparo anula un proyectil enemigo normal
+      for (const q of W.projectiles) {
+        if (q.owner === 'player' || q.dead || q.hard || q.frozen > 0) continue;
+        if (Math.abs(q.x - this.x) < 6 && Math.abs(q.y - this.y) < 6) {
+          q.dead = true; this.dead = true; AudioSys.play('tick');
+          W.particles.burst(q.x, q.y, 8, { col: [PAL.white, q.col], max: 70 });
+          return;
+        }
+      }
       // los enemigos tienen prioridad; un objeto «pingable» sólo consume el disparo si reacciona
       let pingT = null;
       for (const e of W.entities) {
-        if (e.dead) continue;
+        if (e.dead || (this.hitSet && this.hitSet.has(e))) continue;
         if (this.x > e.x && this.x < e.x + e.w && this.y > e.y - 2 && this.y < e.y + e.h + 2) {
-          if (e.enemy) { e.hit(W, this.dmg, this.x - this.vx * 0.02, 'ping'); this.dead = true; W.particles.burst(this.x, this.y, 6, { col: PAL.cyan, max: 60 }); return; }
+          if (e.enemy) {
+            e.hit(W, this.dmg, this.x - this.vx * 0.02, 'ping'); W.particles.burst(this.x, this.y, 6, { col: PAL.cyan, max: 60 });
+            if (this.pierce > 0) { this.pierce--; (this.hitSet = this.hitSet || new Set()).add(e); continue; } // chip ALU: atraviesa
+            this.dead = true; return;
+          }
           if (e.onPing && !pingT) pingT = e;
         }
       }
@@ -357,13 +387,29 @@ class Projectile {
   render(g) {
     const x = Math.round(this.x), y = Math.round(this.y);
     if (this.owner === 'player') { g.fillStyle = PAL.white; g.fillRect(x - 2, y - 1, 4, 2); g.fillStyle = this.col; g.fillRect(x - 5 * sign(this.vx), y, 3, 1); }
+    else if (this.kind === 'wave' || this.kind === 'spark') {
+      // onda por el suelo: se esquiva saltando
+      const c = this.frozen > 0 ? PAL.white : this.col, hh = 7 + (Math.floor(this.t * 20) % 2) * 2;
+      g.fillStyle = PAL.ink; g.fillRect(x - 3, y + 4 - hh, 6, hh + 2);
+      g.fillStyle = c; g.fillRect(x - 2, y + 5 - hh, 4, hh); g.fillStyle = PAL.white; g.fillRect(x - 1, y + 6 - hh, 2, 2);
+      if (this.kind === 'spark' && Math.random() < 0.5) { g.fillStyle = c; g.fillRect(x + randi(-4, 4), y + randi(-8, 2), 1, 1); }
+    } else if (this.kind === 'bolt') {
+      g.fillStyle = PAL.ink; g.fillRect(x - 3, y - 6, 6, 12);
+      g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 1, y - 5, 2, 3); g.fillRect(x - 2, y - 2, 3, 2); g.fillRect(x, y, 2, 3); g.fillRect(x - 1, y + 3, 2, 2);
+    } else if (this.kind === 'bit') {
+      g.fillStyle = 'rgba(5,7,9,0.7)'; g.fillRect(x - 3, y - 5, 7, 9);
+      Font.draw(g, (Math.floor(this.x / 7) % 2) ? '1' : '0', x, y - 6, this.frozen > 0 ? PAL.white : this.col, { align: 'center' });
+    } else if (this.kind === 'page') {
+      g.fillStyle = PAL.ink; g.fillRect(x - 4, y - 3, 8, 7);
+      g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 3, y - 2, 6, 5); g.fillStyle = '#3E2670'; g.fillRect(x - 2, y - 1, 4, 1); g.fillRect(x - 2, y + 1, 3, 1);
+    }
     else { g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 3, y - 2, 6, 4); g.fillStyle = '#0A141C'; g.fillRect(x - 2, y - 1, 4, 2); if (this.frozen > 0) Font.draw(g, '|', x, y - 12, PAL.red); }
   }
 }
 class Fx {
   constructor(kind, x, y, o) { this.kind = kind; this.x = x; this.y = y; this.o = o || {}; this.t = 0; this.w = 1; this.h = 1; this.layer = 3; this.dead = false; this.life = this.o.life || (kind === 'text' ? 1.2 : 0.45); }
   update(W, dt) { this.t += dt; if (this.t > this.life) this.dead = true; }
-  render(g) {
+  render(g, W) {
     const f = this.t / this.life;
     if (this.kind === 'ring') {
       const r = this.o.r * easeOut(f);
@@ -371,7 +417,8 @@ class Fx {
       for (let a = 0; a < Math.PI * 2; a += 0.12) g.fillRect(Math.round(this.x + Math.cos(a) * r), Math.round(this.y + Math.sin(a) * r), 2, 2);
       g.globalAlpha = 1;
     } else if (this.kind === 'text') {
-      g.globalAlpha = 1 - f * f; Font.draw(g, this.o.text, this.x, this.y - f * 16, this.o.col || PAL.white, { align: 'center', shadow: '#000000' }); g.globalAlpha = 1;
+      // los textos flotantes pasan por el sistema de etiquetas: se apartan en vez de pisar otros textos
+      W.label(this.o.text, this.x, this.y - f * 16, this.o.col || PAL.white, { prio: 8, back: false, shadow: '#000000', a: 1 - f * f, noLine: true });
     } else if (this.kind === 'beam') {
       const { x2, y2, col } = this.o; const n = Math.max(1, Math.round(dist(this.x, this.y, x2, y2) / 3));
       g.fillStyle = col; g.globalAlpha = 1 - f;
@@ -408,7 +455,19 @@ class Enemy extends Ent {
   contact(W) {
     if (this.harmless || this.freezeT > 0) return;
     const p = W.player;
-    if (overlap(p, this)) p.hurt(W, 1, this.x + this.w / 2);
+    if (!overlap(p, this)) return;
+    if (this.stomped(W, p)) return;
+    p.hurt(W, 1, this.x + this.w / 2);
+  }
+  // PISOTÓN: caer encima rebota y cuenta como golpe (salvo enemigos «que queman»)
+  stomped(W, p) {
+    if (this.spiky || p.dead || p.vy <= 20 || p.prevY == null || p.prevY + p.h > this.y + 5) return false;
+    p.vy = Input.held('jump') ? -290 : -230; p.jumping = true; p.grounded = false; p.invuln = Math.max(p.invuln, 0.2);
+    W.particles.burst(p.cx, p.y + p.h, 6, { col: [PAL.white, PAL.cyan], max: 60 });
+    if (this.hit(W, 1, p.cx, 'stomp') === false) AudioSys.play('land');
+    PROG.stats.stomps = (PROG.stats.stomps || 0) + 1;
+    if (!W.has('tip_stomp')) W.tip('stomp', 'PISOTÓN: caer encima de un enemigo le hace daño y te impulsa. Mantén [' + Input.label('jump') + '] para rebotar más alto.');
+    return true;
   }
   hit(W, dmg, srcX, kind) {
     if (this.dead) return false;
@@ -425,6 +484,12 @@ class Enemy extends Ent {
     AudioSys.play('pickup');
     PROG.stats.enemies++;
     Progression.addXP(this.xp || 6);
+    // COMBO: derrotas encadenadas en menos de 3 s
+    W.combo = W.t - (W.lastKillT == null ? -9 : W.lastKillT) < 3 ? (W.combo || 0) + 1 : 1; W.lastKillT = W.t;
+    if (W.combo >= 2) { floatText(W, this.cx, this.y - 20, 'COMBO ×' + W.combo, PAL.gold); Progression.addXP(2 * W.combo, 'combo'); if (W.combo >= 5) Achievements.unlock('combo5'); }
+    // BESTIARIO: la primera derrota de cada amenaza añade su ficha al Codex
+    const bk = 'en_' + this.kind;
+    if (CODEX_BY_ID[bk] && !PROG.codex.includes(bk)) { Codex.unlock(bk, true); UI.toast('BESTIARIO: ' + CODEX_BY_ID[bk].name, PAL.violet); }
     Achievements.check();
     if (this.p.flag) W.flag(this.p.flag);
     if (W.def.onEnemyDeath) W.def.onEnemyDeath(W, this);
@@ -445,7 +510,7 @@ class BitCorrupt extends Enemy {
   constructor(cx, cy, p) { super(cx, cy, p, 14, 12, p.hp || 3); this.bits = (p.bits || '10110010').slice(0, this.maxHp + 1).split(''); this.kind = 'bitcorrupt'; this.speed = p.speed || 28; }
   hit(W, dmg, srcX, kind) {
     const r = super.hit(W, dmg, srcX, kind);
-    floatText(W, this.cx, this.y - 8, kind === 'pulse' ? 'XOR: BITS RESTAURADOS' : 'BIT RESTAURADO', PAL.green);
+    if (r) floatText(W, this.cx, this.y - 8, kind === 'pulse' ? 'XOR: BITS RESTAURADOS' : 'BIT RESTAURADO', PAL.green);
     return r;
   }
   render(g) {
@@ -540,6 +605,7 @@ class OverHeatEnemy extends Enemy {
     if (Math.random() < dt * 6) W.particles.spawn({ x: this.cx + rand(-5, 5), y: this.y, vy: -25, col: PAL.orange, life: 0.5, kind: 'smoke', size: 2 });
   }
   contact(W) { if (this.cooledT <= 0) super.contact(W); }
+  get spiky() { return this.cooledT <= 0; } // caliente: pisarlo quema
   hit(W, dmg, srcX, kind) {
     if (this.cooledT <= 0) { floatText(W, this.cx, this.y - 8, 'DEMASIADO CALIENTE', PAL.orange); if (!W.has('tip_overheat')) W.tip('overheat', 'OverHeat disipa los ataques. Activa un ventilador cercano (E o un disparo) para enfriarlo y luego atácalo.'); return false; }
     return super.hit(W, dmg, srcX, kind);
@@ -637,7 +703,7 @@ class Terminal extends Ent {
     this.flag = p.flag || ('term_' + (p.id || (cx + '_' + cy)));
     this.label = p.label || 'Terminal';
   }
-  init(W) { this.solved = W.has(this.flag); }
+  init(W) { this.solved = W.has(this.flag); if (this.solved && this.p.door) { const d = W.ent(this.p.door); if (d && !d.opened) d.open(W, true); } }
   get prompt() { return this.solved && !this.p.repeat ? 'Revisar ' + this.label : 'Usar ' + this.label; }
   interact(W) {
     const self = this;
@@ -719,7 +785,7 @@ class Checkpoint extends Ent {
     for (const e of W.entities) if (e.kind === 'checkpoint') e.active = false;
     this.active = true;
     PROG.checkpoint = { level: W.index, id: this.id, x: this.x, y: this.y + this.h - 15 };
-    W.player.heal(PROG.maxHp);
+    W.player.heal(Chips.maxHp()); if (Chips.on('post')) W.player.postShield = true;
     AudioSys.play('checkpoint');
     UI.toast('CHECKPOINT — progreso guardado', PAL.cyan);
     W.particles.burst(this.cx, this.y + 4, 20, { col: [PAL.cyan, PAL.white], max: 80 });
@@ -734,7 +800,7 @@ class Checkpoint extends Ent {
 }
 class Exit extends Ent {
   constructor(cx, cy, p) { super(cx, cy, p, 18, 32); this.kind = 'exit'; this.layer = 0; }
-  isOpen(W) { return !this.p.needs || W.has(this.p.needs); }
+  isOpen(W) { return (!this.p.needs || W.has(this.p.needs)) && (!this.p.boss || W.has(this.p.boss)); }
   update(W, dt) {
     this.t += dt;
     if (this.used || W.player.dead) return;
@@ -743,7 +809,7 @@ class Exit extends Ent {
         this.used = true;
         const self = this;
         W.run(function* () { if (self.p.onEnter) yield* self.p.onEnter(W); W.complete(); }, 'exit');
-      } else if (!this.warned) { this.warned = true; W.bark('SYS', this.p.lockedText || 'SALIDA BLOQUEADA: subsistema sin estabilizar.', null, 2.5); }
+      } else if (!this.warned) { this.warned = true; W.bark('SYS', this.p.boss && (!this.p.needs || W.has(this.p.needs)) ? 'SALIDA BLOQUEADA: el guardián de la región sigue activo.' : this.p.lockedText || 'SALIDA BLOQUEADA: subsistema sin estabilizar.', null, 2.5); }
     } else this.warned = false;
   }
   render(g, W) {
@@ -765,17 +831,33 @@ class Door extends Ent {
     this.x = this.tx0 * TS; this.y = this.ty0 * TS; this.w = (this.tx1 - this.tx0 + 1) * TS; this.h = (this.ty1 - this.ty0 + 1) * TS;
     this.kind = 'door'; this.layer = 1; this.openT = 0; this.opened = false;
   }
-  init(W) { if (this.p.flag && W.has(this.p.flag)) this.open(W, true); }
+  init(W) {
+    // una puerta que ya se abrió sigue abierta al volver de un checkpoint, de una muerte o de la partida guardada
+    if ((this.p.flag && W.has(this.p.flag)) || W.has('door_' + W.index + '_' + this.id)) this.open(W, true);
+    else if (this.p.gate && (!this.p.openWhen || W.has(this.p.openWhen))) this.open(W, true);
+  }
   setTiles(W, t) { for (const [x, y] of this.p.cells) W.setTile(x, y, t); }
   open(W, instant) {
     if (this.opened) return;
     this.opened = true; this.setTiles(W, T.AIR);
     if (this.p.flag) W.flag(this.p.flag);
+    if (!instant && !this.p.gate && this.id !== 'arena') W.flag('door_' + W.index + '_' + this.id);
     if (instant) this.openT = 1;
     else { AudioSys.play('door'); W.particles.burst(this.cx, this.cy, 12, { col: [PAL.cyan, PAL.white] }); }
   }
   close(W) { this.opened = false; this.openT = 0; this.setTiles(W, T.DOOR); }
-  update(W, dt) { this.t += dt; if (this.opened) this.openT = Math.min(1, this.openT + dt * 2); }
+  update(W, dt) {
+    this.t += dt; if (this.opened) this.openT = Math.min(1, this.openT + dt * 2);
+    if (!this.p.gate || this.opened || Guardians.active(W)) return;
+    // compuerta del guardián: se abre al completar la región; si no, avisa de qué falta
+    if (!this.p.openWhen || W.has(this.p.openWhen)) {
+      this.open(W);
+      if (!W.has('gate_' + W.index)) { W.flag('gate_' + W.index); W.bark(guide(), 'Región estabilizada: se abre la compuerta. Al otro lado espera su guardián.', 'CURIOUS', 4); }
+      return;
+    }
+    const p = W.player, near = p.x + p.w > this.x - 3 && p.x < this.x + this.w + 3 && p.y + p.h > this.y && p.y < this.y + this.h;
+    if (near && !this.warned) { this.warned = true; W.bark('SYS', this.p.lockedText, null, 3); } else if (!near) this.warned = false;
+  }
   render(g, W) {
     if (this.openT >= 1) return;
     const hh = Math.round(this.h * (1 - this.openT));

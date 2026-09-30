@@ -104,7 +104,8 @@ class GameplayState {
   }
   worldHint() {
     const W = this.W;
-    const h = W.def.hint ? W.def.hint(W) : null;
+    let h = null;
+    try { h = W.def.hint ? W.def.hint(W) : null; } catch (e) { console.warn('pista', e); } // una pista nunca debe romper la partida
     const spk = Voice.speaker();
     const text = h ? h.text : 'Explora: busca terminales con «!» y sigue la misión actual (L).';
     if (spk === 'TERMINAL') W.bark('SYS', 'AYUDA: ' + text, null, 5);
@@ -126,7 +127,9 @@ function drawHUD(g, W, st) {
   // panel de estado (arriba izquierda)
   g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(4, 4, 132, 34);
   g.fillStyle = PAL.panelB; g.fillRect(4, 38, 132, 1);
-  for (let i = 0; i < PROG.maxHp; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? PAL.red : '#3A1A20');
+  const mh = Chips.maxHp();
+  for (let i = 0; i < mh; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? (i >= PROG.maxHp ? '#FF9ED8' : PAL.red) : '#3A1A20');
+  if (p.postShield) Font.draw(g, '◆', 10 + mh * 9, 5, Math.floor(W.t * 3) % 2 ? PAL.cyan : '#9FF6FF');
   if (Settings.data.assist) Font.draw(g, 'ASIST.', 132, 5, PAL.gray, { align: 'right' });
   Font.draw(g, 'EN', 8, 15, PAL.cyan);
   UI.bar(g, 22, 19, 108, 4, p.energy / Progression.maxEnergy(), PAL.cyan);
@@ -146,7 +149,7 @@ function drawHUD(g, W, st) {
     PROG.abilities.forEach((kk, i) => { g.fillStyle = i === PROG.selAbility ? ABILITIES[kk].col : PAL.grayD; g.fillRect(W_HUD_R - 50 + i * 5, 20, 4, 3); });
   } else Font.draw(g, 'SIN HABILIDADES', W_HUD_R - 146, 9, PAL.gray);
   // misión y concepto
-  const q = Quests.currentMain();
+  const q = Guardians.active(W) ? null : Quests.currentMain(); // en combate con un guardián, la barra del jefe manda
   let qy = 30;
   if (q) {
     let txt = '▸ ' + q.objective;
@@ -157,7 +160,7 @@ function drawHUD(g, W, st) {
     Font.draw(g, txt, W_HUD_R - 8, qy - 1, PAL.white, { align: 'right' });
     qy += 13;
   }
-  if (W.def.concepts) {
+  if (W.def.concepts && !Guardians.active(W)) {
     const ct = UI.fit('CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · '), 300);
     const cw = Font.measure(ct) + 8;
     g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - cw, qy, cw, 12);
@@ -169,6 +172,9 @@ function drawHUD(g, W, st) {
     UI.bar(g, 34, 46, 80, 4, W.heat / 100, W.heat > 75 ? PAL.red : PAL.orange);
   }
   if (W.def.hud) W.def.hud(g, W);
+  Guardians.drawHUD(g, W);
+  drawPrefetchRadar(g, W);
+  if (Guardians.quizShown(W)) UI.toastTop = Math.max(UI.toastTop || 0, 72);
   // aviso de interacción
   if (p.near && !W.scripts.blocking) {
     const txt = p.near.prompt || p.near.label || 'Interactuar';
@@ -184,7 +190,7 @@ function drawHUD(g, W, st) {
     const b = W.barks[0];
     const spk = SPEAKERS[b.s] || SPEAKERS.SYS;
     const lines = UI.wrap(b.t, 300);
-    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = 58;
+    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : 58;
     const a = b.time < 0.15 ? b.time / 0.15 : b.dur - b.time < 0.3 ? (b.dur - b.time) / 0.3 : 1;
     g.globalAlpha = clamp(a, 0, 1);
     UI.toastTop = by + bh + 4; // los avisos se colocan debajo del comentario
@@ -267,7 +273,7 @@ class ConfirmState extends MenuState {
 // ---------- Reiniciar el nivel: instantánea del progreso al empezar el nivel ----------
 // Red de seguridad universal: si algo se queda atrás, se puede volver a empezar el nivel
 // con el estado con el que se entró (tras su introducción). El aprendizaje y las estadísticas no se tocan.
-const LEVEL_SNAP_FIELDS = ['flags', 'abilities', 'selAbility', 'quests', 'codex', 'blueprint', 'bpTabs', 'fragments', 'letters', 'historic', 'choices', 'trust', 'xp', 'playerLevel', 'hp', 'maxHp'];
+const LEVEL_SNAP_FIELDS = ['flags', 'abilities', 'selAbility', 'quests', 'codex', 'blueprint', 'bpTabs', 'fragments', 'letters', 'historic', 'choices', 'trust', 'xp', 'playerLevel', 'hp', 'maxHp', 'chips', 'equip'];
 function takeLevelSnap(n) {
   const d = {};
   for (const k of LEVEL_SNAP_FIELDS) if (PROG[k] !== undefined) d[k] = JSON.parse(JSON.stringify(PROG[k]));
@@ -293,6 +299,7 @@ class PauseState extends MenuState {
       { label: 'MISIONES', fn: () => Game.push(new QuestLogState()) },
       { label: 'PROGRESO', fn: () => Game.push(new ProgressState()) },
       { label: 'MEMORIAS', fn: () => Game.push(new MemoriesState()) },
+      { label: 'FIRMWARE', fn: () => Game.push(new FirmwareState()) },
       { label: 'CONTROLS', fn: () => Game.push(new ControlsState()) },
       { label: 'SETTINGS', fn: () => Game.push(new SettingsState()) },
       { label: 'RESTART CHECKPOINT', fn: () => Game.push(new ConfirmState('¿Volver al último checkpoint?', () => { Game.loadLevel(PROG.level, { fromCheckpoint: true }); })) },
@@ -396,7 +403,7 @@ class ControlsState {
 }
 
 // ---------------------------------------------------------------- CODEX ----
-const CODEX_CATS = ['FUNDAMENTOS', 'PLACA BASE', 'CPU', 'MEMORIA', 'BUSES', 'E/S', 'RENDIMIENTO', 'SISTEMA', 'HISTORIA'];
+const CODEX_CATS = ['FUNDAMENTOS', 'PLACA BASE', 'CPU', 'MEMORIA', 'BUSES', 'E/S', 'RENDIMIENTO', 'AMENAZAS', 'SISTEMA', 'HISTORIA'];
 class CodexState {
   constructor() { this.overlay = true; this.sel = 0; this.t = 0; this.list = CODEX_CATS.flatMap(c => CODEX.filter(e => e.cat === c)); const k = this.list.findIndex(e => PROG.codex.includes(e.id)); this.sel = Math.max(0, k); this.scroll = 0; }
   update(dt) {
@@ -442,7 +449,8 @@ class CodexState {
     txt(e.cat, x, y, PAL.violet); y += 12;
     UI.wrap(e.name, w, 2).forEach(l => { txt(l, x, y, PAL.white, { s: 2 }); y += 23; });
     const field = (label, text, col) => { if (!text) return; txt(label, x, y, col || PAL.cyan); y += 12; for (const l of UI.wrap(text, w - 6)) { txt(l, x + 6, y, PAL.grayL); y += 12; } y += 3; };
-    field('DEFINICIÓN', e.def); field('FUNCIÓN', e.func); field('ENTRADAS', e.inp); field('SALIDAS', e.out); field('CONEXIONES', e.conn);
+    const lb = e.labels || ['DEFINICIÓN', 'FUNCIÓN', 'ENTRADAS', 'SALIDAS', 'CONEXIONES'];
+    field(lb[0], e.def); field(lb[1], e.func); field(lb[2], e.inp); field(lb[3], e.out); field(lb[4], e.conn);
     if (e.lat || e.cap) {
       if (inView(y, 11)) {
         Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 108, y + 4, e.lat, 5, PAL.amber);
@@ -883,6 +891,9 @@ function startTeacherLevel(i) {
   (pre.codex || []).forEach(c => Codex.unlock(c, true));
   PROG.blueprint = (pre.bp || ['cpu']).slice(); PROG.bpTabs = (pre.tabs || ['hw']).slice();
   PROG.xp = pre.xp || 0; PROG.playerLevel = Progression.levelFor(PROG.xp);
+  // chips de los guardianes anteriores, equipados hasta llenar la memoria de firmware
+  PROG.chips = CHIP_ORDER.filter(k => CHIPS[k].lv < i); PROG.equip = [];
+  for (const k of PROG.chips) if (Chips.used() + CHIPS[k].kb <= Chips.cap()) PROG.equip.push(k);
   Sprites.buildByte(Progression.upgFor(PROG.playerLevel));
   Game.loadLevel(i);
 }

@@ -8,6 +8,8 @@
 //  5) Módulo olvidado: la pista y la palanca RUN dicen cuál falta y cómo volver
 //  6) REINICIAR NIVEL (menú de pausa): deshace lo hecho en el nivel y vuelve al inicio sin repetir la introducción
 //  7) Un módulo que cae a pinchos o al vacío vuelve a su sitio
+//  8) Una puerta ya abierta sigue abierta al volver de un checkpoint o de una muerte
+//  9) La pista [H] del Distrito de E/S ya no rompe la partida
 // Uso: node tools/fixes.js [dir_capturas]
 'use strict';
 const path = require('path');
@@ -139,6 +141,28 @@ const ok = (c, m) => console.log((c ? '✓ ' : '✗ ') + m);
     return r;
   });
   ok(home.back && home.fromVoid, 'un módulo en pinchos o en el vacío vuelve a su sitio ' + JSON.stringify(home));
+
+  // 8) una puerta abierta por una terminal sigue abierta tras volver de un checkpoint (antes se cerraba)
+  const door = await page.evaluate(() => {
+    startTeacherLevel(1);
+    const W = Game.world; W.pending.length = 0;
+    const d = W.ent('d1'); d.open(W); // como al resolver la terminal del distrito
+    PROG.checkpoint = { level: 1, id: 'cp0', x: 66 * TS, y: 14 * TS };
+    Game.loadLevel(1, { fromCheckpoint: true });
+    for (let k = 0; k < 30; k++) Game.update(1 / 60);
+    return { reopened: Game.world.ent('d1').opened };
+  });
+  ok(door.reopened, 'una puerta ya abierta sigue abierta tras un checkpoint, una muerte o cargar la partida ' + JSON.stringify(door));
+
+  // 9) la pista [H] del Distrito de E/S no rompe la partida antes de tener INTERRUPT SHIELD
+  const hint6 = await page.evaluate(() => {
+    startTeacherLevel(6); PROG.abilities = PROG.abilities.filter(a => a !== 'interruptShield');
+    const W = Game.world; W.pending.length = 0; for (let k = 0; k < 5; k++) Game.update(1 / 60);
+    const h = W.def.hint(W); W.state.worldHint();
+    return { text: h && h.text, x: h && h.x != null };
+  });
+  ok(hint6.text && hint6.x, 'pista del Distrito de E/S (señala a IO) ' + JSON.stringify(hint6));
+
   ok(!errors.length, 'sin errores ' + errors.slice(0, 3).join(' | '));
   await browser.close();
 })();

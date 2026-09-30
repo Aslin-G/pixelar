@@ -84,6 +84,9 @@ class Particles {
 
 // ---------------------------------------------------------------- MUNDO ----
 const ZONE_TYPES = new Set(['door', 'trigger', 'bridge', 'heat', 'collapse', 'water']);
+// distancia de un punto al rectángulo de una entidad (para enemigos grandes como los guardianes)
+const rectDist = (x, y, e) => Math.hypot(Math.max(e.x - x, 0, x - (e.x + e.w)), Math.max(e.y - y, 0, y - (e.y + e.h)));
+const entDist = (x, y, e) => (e.big ? rectDist(x, y, e) : dist(e.x + e.w / 2, e.y + e.h / 2, x, y));
 class World {
   constructor(def, o = {}) {
     this.def = def; this.index = def.id;
@@ -106,8 +109,11 @@ class World {
     this.nexo = new Nexo(this);
     if (PROG.flags.nexoAway || def.noNexo) this.nexo.hidden = true;
     this.cam.snap(this.player);
+    // enemigos extra del nivel: [tipo, casilla x, casilla y, propiedades]
+    for (const [t, x, y, pp] of def.spawns || []) { const e = makeEntity(t, x, y, Object.assign({}, pp || {}), this); if (e) this.addEntity(e); }
     if (def.onLoad) def.onLoad(this, !!cp);
     this.entities.forEach(e => e.init && e.init(this));
+    Guardians.setup(this);
     this.depthDirty = true;
     // instantánea para «REINICIAR NIVEL»: al entrar (tras la introducción), salvo al reanudar un nivel que ya la tiene
     // (checkpoint, muerte o partida guardada: aunque no haya checkpoint, se conserva la del inicio)
@@ -338,7 +344,7 @@ class World {
     }
     return e;
   }
-  enemiesNear(x, y, r) { return this.entities.filter(e => e.enemy && !e.dead && dist(e.x + e.w / 2, e.y + e.h / 2, x, y) < r); }
+  enemiesNear(x, y, r) { return this.entities.filter(e => e.enemy && !e.dead && entDist(x, y, e) < r); }
 
   // ---------- habilidades ----------
   useAbility() {
@@ -363,7 +369,7 @@ class World {
     this.run(function* (W) { yield* node.linkPrompt(W); }, 'link');
   }
   ab_busBridge(p) {
-    const be = this.nearest(e => e.kind === 'buserror' && !e.dead, 72);
+    const be = this.nearest(e => e.kind === 'buserror' && !e.dead, 72) || this.entities.find(e => e.reroute && e.big && !e.dead && e.state === 'fight' && rectDist(p.cx, p.y + 7, e) < 64);
     if (be) { this.run(function* (W) { yield* be.reroute(W); }, 'reroute'); return; }
     const node = this.nearest(e => e.kind === 'busnode', 48);
     if (!node) { UI.toast('No hay nodos de bus cerca', PAL.gray); return false; }
@@ -382,7 +388,7 @@ class World {
     this.shake(2, 0.2);
     for (const e of this.entities) {
       if (e.dead) continue;
-      const d = dist(cx, cy, e.x + e.w / 2, e.y + e.h / 2);
+      const d = entDist(cx, cy, e);
       if (d > R + 8) continue;
       if (e.enemy) e.hit(this, 2, cx, 'pulse');
       if (e.onPulse) e.onPulse(this);
@@ -408,7 +414,7 @@ class World {
     AudioSys.play('clone');
   }
   ab_registerRecall(p) {
-    for (const e of this.entities) if (e.kind === 'nullpointer' && !e.dead && dist(e.x, e.y, p.x, p.y) < 160) e.pin(this);
+    for (const e of this.entities) if ((e.kind === 'nullpointer' || e.pinnable) && !e.dead && entDist(p.x, p.y, e) < (e.big ? 200 : 160)) e.pin(this);
     if (!p.recall) {
       p.recall = { x: p.x, y: p.y, t: 12 };
       AudioSys.play('tick'); UI.toast('POSICIÓN GUARDADA EN REGISTRO R7', PAL.white);
@@ -515,7 +521,7 @@ class World {
     if (this.glitchT > 0) this.renderGlitch(g);
   }
   // Etiquetas del mundo: se colocan al final evitando que se pisen entre sí
-  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small }); }
+  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small, a: o.a == null ? 1 : o.a, noLine: o.noLine }); }
   flushLabels(g) {
     const L = this.labelQ;
     if (!L.length) return;
@@ -527,9 +533,11 @@ class World {
       let y = Math.round(l.y), k = 0;
       while (hit(y) && k < 6) { y -= 11; k++; }
       placed.push({ x: x0, y, w, h });
-      if (y !== Math.round(l.y)) { g.fillStyle = l.col; g.globalAlpha = 0.5; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
-      if (l.back) { g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      if (y !== Math.round(l.y) && !l.noLine) { g.fillStyle = l.col; g.globalAlpha = 0.5 * l.a; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
+      if (l.back) { g.globalAlpha = l.a; g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55 * l.a; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      g.globalAlpha = l.a;
       Font.draw(g, l.text, Math.round(l.x), y, l.col, { align: 'center', shadow: l.shadow });
+      g.globalAlpha = 1;
     }
     L.length = 0;
   }
@@ -564,6 +572,7 @@ class World {
     for (let y = 1; y < this.h - 1; y++) for (let x = 1; x < this.w - 1; x++) {
       const here = this.tile(x, y), below = this.tile(x, y + 1);
       if (here !== T.AIR || !(below === T.SOLID || below === T.ONEWAY)) continue;
+      if (this.h <= 24 && y < 4) continue; // tejados junto al borde superior: inalcanzables y bajo el HUD
       if (hash2(x * 7 + 3, y * 13 + 5) > density) continue;
       if ([this.tile(x - 1, y + 1), this.tile(x + 1, y + 1), this.tile(x - 1, y), this.tile(x + 1, y)].some(t => t === T.SPIKE || t === T.POOL)) continue;
       const name = list[Math.floor(hash2(x * 31, y * 17) * list.length)], pr = set[name];

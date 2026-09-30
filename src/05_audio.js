@@ -218,6 +218,7 @@ const MUSIC = {
   io:     { bpm: 112, root: 57, scale: 'dorian', prog: [0, 3, 4, 0], bass: 'x..x..x...x..x..', arp: 0.018, lead: 'nexo', leadEvery: 8, leadVol: 0.04, drums: { k: 'x.....x...x.....', h: '..x...x...x...x.', s: '....x.......x...' } },
   lab:    { bpm: 116, root: 52, scale: 'minor', prog: [0, 6, 5, 4], bass: 'x.x...x.x.x...x.', arp: 0.02, arpRate: 1, drums: { k: 'x.......x.......', h: 'x.x.x.x.x.x.x.x.' }, lead: ['nexo', 'null'], leadEvery: 16, leadVol: 0.03 },
   kernel: { bpm: 60, root: 45, scale: 'minor', prog: [0, 5], pad: 0.02, lead: 'frag', leadEvery: 8, leadWave: 'sine', leadVol: 0.025 },
+  guardian: { bpm: 136, root: 52, scale: 'minor', prog: [0, 5, 6, 4], bass: 'x.x.xx.x.x.xx.x.', bassVol: 0.08, arp: 0.018, arpRate: 1, drums: { k: 'x...x...x..xx...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' }, lead: 'nexo', leadEvery: 8, leadVol: 0.035 },
   boss:   { bpm: 144, root: 50, scale: 'phrygian', prog: [0, 1, 6, 0], bass: 'x.xxx.xxx.xxx.xx', bassVol: 0.08, arp: 0.018, arpRate: 1, drums: { k: 'x..x..x.x..x..x.', s: '....x.......x...', h: 'xxxxxxxxxxxxxxxx' }, lead: 'null', leadEvery: 4, leadVol: 0.04 },
   nexus:  { bpm: 96, root: 57, scale: 'major', prog: [0, 3, 5, 4], pad: 0.03, arp: 0.02, arpWave: 'triangle', lead: ['nexo', 'null'], leadWave: 'triangle', leadVol: 0.05, bass: 'x.......x.......' },
   ending: { bpm: 76, root: 60, scale: 'major', prog: [0, 5, 3, 4], pad: 0.03, arp: 0.016, arpWave: 'triangle', lead: 'nexo', leadWave: 'triangle', leadVol: 0.05, bass: 'x.......x.......' }

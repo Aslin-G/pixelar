@@ -1703,6 +1703,7 @@ const MUSIC = {
   io:     { bpm: 112, root: 57, scale: 'dorian', prog: [0, 3, 4, 0], bass: 'x..x..x...x..x..', arp: 0.018, lead: 'nexo', leadEvery: 8, leadVol: 0.04, drums: { k: 'x.....x...x.....', h: '..x...x...x...x.', s: '....x.......x...' } },
   lab:    { bpm: 116, root: 52, scale: 'minor', prog: [0, 6, 5, 4], bass: 'x.x...x.x.x...x.', arp: 0.02, arpRate: 1, drums: { k: 'x.......x.......', h: 'x.x.x.x.x.x.x.x.' }, lead: ['nexo', 'null'], leadEvery: 16, leadVol: 0.03 },
   kernel: { bpm: 60, root: 45, scale: 'minor', prog: [0, 5], pad: 0.02, lead: 'frag', leadEvery: 8, leadWave: 'sine', leadVol: 0.025 },
+  guardian: { bpm: 136, root: 52, scale: 'minor', prog: [0, 5, 6, 4], bass: 'x.x.xx.x.x.xx.x.', bassVol: 0.08, arp: 0.018, arpRate: 1, drums: { k: 'x...x...x..xx...', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' }, lead: 'nexo', leadEvery: 8, leadVol: 0.035 },
   boss:   { bpm: 144, root: 50, scale: 'phrygian', prog: [0, 1, 6, 0], bass: 'x.xxx.xxx.xxx.xx', bassVol: 0.08, arp: 0.018, arpRate: 1, drums: { k: 'x..x..x.x..x..x.', s: '....x.......x...', h: 'xxxxxxxxxxxxxxxx' }, lead: 'null', leadEvery: 4, leadVol: 0.04 },
   nexus:  { bpm: 96, root: 57, scale: 'major', prog: [0, 3, 5, 4], pad: 0.03, arp: 0.02, arpWave: 'triangle', lead: ['nexo', 'null'], leadWave: 'triangle', leadVol: 0.05, bass: 'x.......x.......' },
   ending: { bpm: 76, root: 60, scale: 'major', prog: [0, 5, 3, 4], pad: 0.03, arp: 0.016, arpWave: 'triangle', lead: 'nexo', leadWave: 'triangle', leadVol: 0.05, bass: 'x.......x.......' }
@@ -1894,9 +1895,9 @@ function newProgress() {
     codex: [], blueprint: ['cpu'], bpTabs: ['hw'],
     quests: {}, choices: {}, flags: {},
     fragments: [], letters: [], historic: [], achievements: [],
-    stats: { time: 0, hints: 0, answered: 0, correct: 0, firstTry: 0, failed: [], deaths: 0, enemies: 0, reviews: 0, levelTimes: {}, noHintStreak: 0, calibrated: 0 },
+    stats: { time: 0, hints: 0, answered: 0, correct: 0, firstTry: 0, failed: [], deaths: 0, enemies: 0, reviews: 0, levelTimes: {}, noHintStreak: 0, calibrated: 0, guardians: 0, stomps: 0 },
     usedChallenges: [], seenDialogues: [], trust: { nexo: 0, nul: 0 },
-    hp: 5, maxHp: 5, teacher: false
+    hp: 5, maxHp: 5, teacher: false, chips: [], equip: []
   };
 }
 function migrateProgress(d) {
@@ -2270,8 +2271,9 @@ const UI = {
     for (const t of this.toasts.slice(0, 3)) {
       const a = t.t < 0.2 ? t.t / 0.2 : t.t > 2.7 ? (3.2 - t.t) / 0.5 : 1;
       const w = Font.measure(t.text) + 12;
+      g.globalAlpha = clamp(a * 3, 0, 1); // el fondo se vuelve opaco enseguida: nada se ve a través
+      g.fillStyle = 'rgba(5,7,9,0.9)'; g.fillRect(W / 2 - w / 2, y, w, 13);
       g.globalAlpha = clamp(a, 0, 1);
-      g.fillStyle = 'rgba(5,7,9,0.85)'; g.fillRect(W / 2 - w / 2, y, w, 13);
       g.fillStyle = t.col; g.fillRect(W / 2 - w / 2, y + 12, w, 1);
       Font.draw(g, t.text, W / 2, y, t.col, { align: 'center' });
       g.globalAlpha = 1;
@@ -2283,7 +2285,7 @@ const UI = {
     for (let i = this.captions.length - 1; i >= 0; i--) {
       const c = this.captions[i];
       const w = Font.measure(c.text) + 8;
-      g.fillStyle = 'rgba(0,0,0,0.75)'; g.fillRect(6, y, w, 12);
+      g.fillStyle = 'rgba(0,0,0,0.88)'; g.fillRect(6, y, w, 12);
       Font.draw(g, c.text, 10, y - 1, PAL.grayL);
       y -= 13;
     }
@@ -4979,6 +4981,9 @@ class Particles {
 
 // ---------------------------------------------------------------- MUNDO ----
 const ZONE_TYPES = new Set(['door', 'trigger', 'bridge', 'heat', 'collapse', 'water']);
+// distancia de un punto al rectángulo de una entidad (para enemigos grandes como los guardianes)
+const rectDist = (x, y, e) => Math.hypot(Math.max(e.x - x, 0, x - (e.x + e.w)), Math.max(e.y - y, 0, y - (e.y + e.h)));
+const entDist = (x, y, e) => (e.big ? rectDist(x, y, e) : dist(e.x + e.w / 2, e.y + e.h / 2, x, y));
 class World {
   constructor(def, o = {}) {
     this.def = def; this.index = def.id;
@@ -5001,8 +5006,11 @@ class World {
     this.nexo = new Nexo(this);
     if (PROG.flags.nexoAway || def.noNexo) this.nexo.hidden = true;
     this.cam.snap(this.player);
+    // enemigos extra del nivel: [tipo, casilla x, casilla y, propiedades]
+    for (const [t, x, y, pp] of def.spawns || []) { const e = makeEntity(t, x, y, Object.assign({}, pp || {}), this); if (e) this.addEntity(e); }
     if (def.onLoad) def.onLoad(this, !!cp);
     this.entities.forEach(e => e.init && e.init(this));
+    Guardians.setup(this);
     this.depthDirty = true;
     // instantánea para «REINICIAR NIVEL»: al entrar (tras la introducción), salvo al reanudar un nivel que ya la tiene
     // (checkpoint, muerte o partida guardada: aunque no haya checkpoint, se conserva la del inicio)
@@ -5233,7 +5241,7 @@ class World {
     }
     return e;
   }
-  enemiesNear(x, y, r) { return this.entities.filter(e => e.enemy && !e.dead && dist(e.x + e.w / 2, e.y + e.h / 2, x, y) < r); }
+  enemiesNear(x, y, r) { return this.entities.filter(e => e.enemy && !e.dead && entDist(x, y, e) < r); }
 
   // ---------- habilidades ----------
   useAbility() {
@@ -5258,7 +5266,7 @@ class World {
     this.run(function* (W) { yield* node.linkPrompt(W); }, 'link');
   }
   ab_busBridge(p) {
-    const be = this.nearest(e => e.kind === 'buserror' && !e.dead, 72);
+    const be = this.nearest(e => e.kind === 'buserror' && !e.dead, 72) || this.entities.find(e => e.reroute && e.big && !e.dead && e.state === 'fight' && rectDist(p.cx, p.y + 7, e) < 64);
     if (be) { this.run(function* (W) { yield* be.reroute(W); }, 'reroute'); return; }
     const node = this.nearest(e => e.kind === 'busnode', 48);
     if (!node) { UI.toast('No hay nodos de bus cerca', PAL.gray); return false; }
@@ -5277,7 +5285,7 @@ class World {
     this.shake(2, 0.2);
     for (const e of this.entities) {
       if (e.dead) continue;
-      const d = dist(cx, cy, e.x + e.w / 2, e.y + e.h / 2);
+      const d = entDist(cx, cy, e);
       if (d > R + 8) continue;
       if (e.enemy) e.hit(this, 2, cx, 'pulse');
       if (e.onPulse) e.onPulse(this);
@@ -5303,7 +5311,7 @@ class World {
     AudioSys.play('clone');
   }
   ab_registerRecall(p) {
-    for (const e of this.entities) if (e.kind === 'nullpointer' && !e.dead && dist(e.x, e.y, p.x, p.y) < 160) e.pin(this);
+    for (const e of this.entities) if ((e.kind === 'nullpointer' || e.pinnable) && !e.dead && entDist(p.x, p.y, e) < (e.big ? 200 : 160)) e.pin(this);
     if (!p.recall) {
       p.recall = { x: p.x, y: p.y, t: 12 };
       AudioSys.play('tick'); UI.toast('POSICIÓN GUARDADA EN REGISTRO R7', PAL.white);
@@ -5410,7 +5418,7 @@ class World {
     if (this.glitchT > 0) this.renderGlitch(g);
   }
   // Etiquetas del mundo: se colocan al final evitando que se pisen entre sí
-  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small }); }
+  label(text, x, y, col, o = {}) { this.labelQ.push({ text: String(text), x, y, col, prio: o.prio || 0, back: o.back !== false, shadow: o.shadow, small: o.small, a: o.a == null ? 1 : o.a, noLine: o.noLine }); }
   flushLabels(g) {
     const L = this.labelQ;
     if (!L.length) return;
@@ -5422,9 +5430,11 @@ class World {
       let y = Math.round(l.y), k = 0;
       while (hit(y) && k < 6) { y -= 11; k++; }
       placed.push({ x: x0, y, w, h });
-      if (y !== Math.round(l.y)) { g.fillStyle = l.col; g.globalAlpha = 0.5; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
-      if (l.back) { g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      if (y !== Math.round(l.y) && !l.noLine) { g.fillStyle = l.col; g.globalAlpha = 0.5 * l.a; g.fillRect(Math.round(l.x), y + h, 1, Math.round(l.y) - y); g.globalAlpha = 1; }
+      if (l.back) { g.globalAlpha = l.a; g.fillStyle = 'rgba(6,10,18,0.62)'; g.fillRect(x0, y + 1, w, h - 1); g.fillStyle = l.col; g.globalAlpha = 0.55 * l.a; g.fillRect(x0, y + h - 1, w, 1); g.globalAlpha = 1; }
+      g.globalAlpha = l.a;
       Font.draw(g, l.text, Math.round(l.x), y, l.col, { align: 'center', shadow: l.shadow });
+      g.globalAlpha = 1;
     }
     L.length = 0;
   }
@@ -5459,6 +5469,7 @@ class World {
     for (let y = 1; y < this.h - 1; y++) for (let x = 1; x < this.w - 1; x++) {
       const here = this.tile(x, y), below = this.tile(x, y + 1);
       if (here !== T.AIR || !(below === T.SOLID || below === T.ONEWAY)) continue;
+      if (this.h <= 24 && y < 4) continue; // tejados junto al borde superior: inalcanzables y bajo el HUD
       if (hash2(x * 7 + 3, y * 13 + 5) > density) continue;
       if ([this.tile(x - 1, y + 1), this.tile(x + 1, y + 1), this.tile(x - 1, y), this.tile(x + 1, y)].some(t => t === T.SPIKE || t === T.POOL)) continue;
       const name = list[Math.floor(hash2(x * 31, y * 17) * list.length)], pr = set[name];
@@ -5660,7 +5671,7 @@ class Player {
   constructor(W, x, y) {
     this.x = x; this.y = y; this.w = 10; this.h = 15; this.vx = 0; this.vy = 0; this.facing = 1;
     this.grounded = false; this.coyote = 0; this.jumpBuf = 0; this.dropT = 0; this.climbing = false; this.jumping = false;
-    this.hp = PROG.maxHp; this.energy = Progression.maxEnergy(); this.invuln = 0; this.hurtT = 0; this.dead = false;
+    this.hp = Chips.maxHp(); this.energy = Progression.maxEnergy(); this.postShield = Chips.on('post'); this.invuln = 0; this.hurtT = 0; this.dead = false;
     this.anim = 'idle'; this.animT = 0; this.cds = {}; this.boostT = 0; this.shieldT = 0; this.dashT = 0; this.dashTarget = null;
     this.carry = null; this.canRide = true; this.lastSafe = { x, y }; this.safeT = 0; this.auto = null; this.attackCd = 0; this.stepT = 0;
     this.slowT = 0; this.landT = 0; this.celebrateT = 0; this.analyzeT = 0; this.interactT = 0; this.abilityPose = 0; this.recall = null;
@@ -5668,6 +5679,7 @@ class Player {
   }
   get cx() { return this.x + this.w / 2; }
   update(W, dt, control) {
+    this.prevY = this.y; // para detectar pisotones (venía desde arriba)
     for (const k in this.cds) this.cds[k] = Math.max(0, this.cds[k] - dt);
     this.invuln = Math.max(0, this.invuln - dt); this.hurtT = Math.max(0, this.hurtT - dt); this.landT = Math.max(0, this.landT - dt);
     this.boostT = Math.max(0, this.boostT - dt); this.shieldT = Math.max(0, this.shieldT - dt); this.slowT = Math.max(0, this.slowT - dt);
@@ -5675,7 +5687,7 @@ class Player {
     this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
-    this.energy = Math.min(maxE, this.energy + dt * 13);
+    this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1));
     if (this.recall) { this.recall.t -= dt; if (this.recall.t <= 0) { this.recall = null; UI.toast('REGISTRO R7 LIBERADO', PAL.gray); } }
     this.animT += dt;
     if (this.dead) return;
@@ -5729,7 +5741,7 @@ class Player {
     }
     // MOVIMIENTO HORIZONTAL
     const slowed = this.slowT > 0 && this.boostT <= 0;
-    const maxS = 106 * (this.boostT > 0 ? 1.45 : 1) * (slowed ? 0.5 : 1) * (this.carry ? 0.9 : 1);
+    const maxS = 106 * (this.boostT > 0 ? 1.45 : 1) * (slowed ? 0.5 : 1) * (this.carry ? 0.9 : 1) * (Chips.on('overclock') ? 1.15 : 1);
     if (this.hurtT <= 0) {
       if (dir) {
         const acc = this.grounded ? 1000 : 650;
@@ -5784,6 +5796,14 @@ class Player {
     if (this.dead || W.calm || (this.graceT > 0 && !env)) return;
     if (!env && (this.invuln > 0 || this.dashT > 0)) return;
     if (env && this.invuln > 0.9) return;
+    // chip POST: el escudo absorbe un golpe
+    if (this.postShield) {
+      this.postShield = false; this.invuln = 1;
+      AudioSys.play('shield'); W.particles.burst(this.cx, this.y + 7, 18, { col: [PAL.cyan, PAL.white], max: 90 });
+      floatText(W, this.cx, this.y - 10, 'POST: GOLPE ABSORBIDO', PAL.cyan);
+      if (!env) { this.vx = sign(this.cx - srcX || 1) * 120; this.vy = -150; }
+      return;
+    }
     AudioSys.play('hurt');
     W.shake(3, 0.25); W.flash(PAL.red, 0.15);
     this.hurtT = 0.28; this.invuln = 1.1;
@@ -5791,16 +5811,24 @@ class Player {
     if (Settings.data.assist) return;
     this.hp -= dmg; W.damageTaken = true;
     if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5);
+    if (this.hp <= 0 && Chips.on('watchdog') && !W.v.watchdogUsed) {
+      W.v.watchdogUsed = true; this.hp = 2; this.invuln = 2;
+      AudioSys.play('levelup'); W.flash(PAL.green, 0.3); UI.toast('WATCHDOG: REINICIO DE EMERGENCIA (2 ♥)', PAL.green);
+      W.particles.burst(this.cx, this.y + 8, 30, { col: [PAL.green, PAL.white], kind: 'bit', max: 100 });
+      return;
+    }
     if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
   }
-  heal(n) { this.hp = Math.min(PROG.maxHp, this.hp + n); }
+  heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }
   dash(dir) { this.dashT = 0.16; this.dashTarget = null; this.vx = dir * 330; this.invuln = Math.max(this.invuln, 0.2); }
   dashTo(x, y) { this.dashT = 0.8; this.dashTarget = { x, y }; this.invuln = Math.max(this.invuln, 0.3); }
   attack(W) {
     if (this.attackCd > 0 || this.carry) return;
-    this.attackCd = 0.28; this.abilityPose = 0.15;
+    this.attackCd = Chips.on('pipeline') ? 0.175 : 0.28; this.abilityPose = 0.15;
     AudioSys.play('attack');
-    W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + 7, this.facing * 280, 0, { owner: 'player', dmg: 1, life: 0.42, col: PAL.cyan }));
+    const o = { owner: 'player', dmg: 1, life: Chips.on('alu') ? 0.59 : 0.42, col: PAL.cyan, pierce: Chips.on('alu') ? 1 : 0 };
+    if (Chips.on('bus64')) for (const dy of [4, 10]) W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + dy, this.facing * 280, 0, Object.assign({}, o)));
+    else W.projectiles.push(new Projectile(this.cx + this.facing * 6, this.y + 7, this.facing * 280, 0, o));
     if (W.clone && !W.clone.dead) W.clone.attack(W);
   }
   findInteract(W) {
@@ -5970,19 +5998,32 @@ class NullFigure {
 
 // ---------------------------------------------------------------- PROYECTILES Y EFECTOS ----
 class Projectile {
-  constructor(x, y, vx, vy, o) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; Object.assign(this, { owner: 'enemy', dmg: 1, life: 2, col: PAL.red, w: 6, h: 4 }, o); this.dead = false; this.frozen = 0; }
+  constructor(x, y, vx, vy, o) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; Object.assign(this, { owner: 'enemy', dmg: 1, life: 2, col: PAL.red, w: 6, h: 4, pierce: 0, kind: null }, o); this.dead = false; this.frozen = 0; this.t = 0; }
   update(W, dt) {
     if (this.frozen > 0) { this.frozen -= dt; if (this.frozen <= 0) { this.dead = true; W.particles.burst(this.x, this.y, 6, { col: PAL.red }); } return; }
-    this.x += this.vx * dt; this.y += this.vy * dt; this.life -= dt;
+    this.x += this.vx * dt; this.y += this.vy * dt; this.life -= dt; this.t += dt;
     if (this.life <= 0) { this.dead = true; return; }
     if (W.solidAt(this.x, this.y)) { this.dead = true; W.particles.burst(this.x, this.y, 5, { col: this.col, max: 50 }); return; }
     if (this.owner === 'player') {
+      // choque de paquetes: un disparo anula un proyectil enemigo normal
+      for (const q of W.projectiles) {
+        if (q.owner === 'player' || q.dead || q.hard || q.frozen > 0) continue;
+        if (Math.abs(q.x - this.x) < 6 && Math.abs(q.y - this.y) < 6) {
+          q.dead = true; this.dead = true; AudioSys.play('tick');
+          W.particles.burst(q.x, q.y, 8, { col: [PAL.white, q.col], max: 70 });
+          return;
+        }
+      }
       // los enemigos tienen prioridad; un objeto «pingable» sólo consume el disparo si reacciona
       let pingT = null;
       for (const e of W.entities) {
-        if (e.dead) continue;
+        if (e.dead || (this.hitSet && this.hitSet.has(e))) continue;
         if (this.x > e.x && this.x < e.x + e.w && this.y > e.y - 2 && this.y < e.y + e.h + 2) {
-          if (e.enemy) { e.hit(W, this.dmg, this.x - this.vx * 0.02, 'ping'); this.dead = true; W.particles.burst(this.x, this.y, 6, { col: PAL.cyan, max: 60 }); return; }
+          if (e.enemy) {
+            e.hit(W, this.dmg, this.x - this.vx * 0.02, 'ping'); W.particles.burst(this.x, this.y, 6, { col: PAL.cyan, max: 60 });
+            if (this.pierce > 0) { this.pierce--; (this.hitSet = this.hitSet || new Set()).add(e); continue; } // chip ALU: atraviesa
+            this.dead = true; return;
+          }
           if (e.onPing && !pingT) pingT = e;
         }
       }
@@ -5996,13 +6037,29 @@ class Projectile {
   render(g) {
     const x = Math.round(this.x), y = Math.round(this.y);
     if (this.owner === 'player') { g.fillStyle = PAL.white; g.fillRect(x - 2, y - 1, 4, 2); g.fillStyle = this.col; g.fillRect(x - 5 * sign(this.vx), y, 3, 1); }
+    else if (this.kind === 'wave' || this.kind === 'spark') {
+      // onda por el suelo: se esquiva saltando
+      const c = this.frozen > 0 ? PAL.white : this.col, hh = 7 + (Math.floor(this.t * 20) % 2) * 2;
+      g.fillStyle = PAL.ink; g.fillRect(x - 3, y + 4 - hh, 6, hh + 2);
+      g.fillStyle = c; g.fillRect(x - 2, y + 5 - hh, 4, hh); g.fillStyle = PAL.white; g.fillRect(x - 1, y + 6 - hh, 2, 2);
+      if (this.kind === 'spark' && Math.random() < 0.5) { g.fillStyle = c; g.fillRect(x + randi(-4, 4), y + randi(-8, 2), 1, 1); }
+    } else if (this.kind === 'bolt') {
+      g.fillStyle = PAL.ink; g.fillRect(x - 3, y - 6, 6, 12);
+      g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 1, y - 5, 2, 3); g.fillRect(x - 2, y - 2, 3, 2); g.fillRect(x, y, 2, 3); g.fillRect(x - 1, y + 3, 2, 2);
+    } else if (this.kind === 'bit') {
+      g.fillStyle = 'rgba(5,7,9,0.7)'; g.fillRect(x - 3, y - 5, 7, 9);
+      Font.draw(g, (Math.floor(this.x / 7) % 2) ? '1' : '0', x, y - 6, this.frozen > 0 ? PAL.white : this.col, { align: 'center' });
+    } else if (this.kind === 'page') {
+      g.fillStyle = PAL.ink; g.fillRect(x - 4, y - 3, 8, 7);
+      g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 3, y - 2, 6, 5); g.fillStyle = '#3E2670'; g.fillRect(x - 2, y - 1, 4, 1); g.fillRect(x - 2, y + 1, 3, 1);
+    }
     else { g.fillStyle = this.frozen > 0 ? PAL.white : this.col; g.fillRect(x - 3, y - 2, 6, 4); g.fillStyle = '#0A141C'; g.fillRect(x - 2, y - 1, 4, 2); if (this.frozen > 0) Font.draw(g, '|', x, y - 12, PAL.red); }
   }
 }
 class Fx {
   constructor(kind, x, y, o) { this.kind = kind; this.x = x; this.y = y; this.o = o || {}; this.t = 0; this.w = 1; this.h = 1; this.layer = 3; this.dead = false; this.life = this.o.life || (kind === 'text' ? 1.2 : 0.45); }
   update(W, dt) { this.t += dt; if (this.t > this.life) this.dead = true; }
-  render(g) {
+  render(g, W) {
     const f = this.t / this.life;
     if (this.kind === 'ring') {
       const r = this.o.r * easeOut(f);
@@ -6010,7 +6067,8 @@ class Fx {
       for (let a = 0; a < Math.PI * 2; a += 0.12) g.fillRect(Math.round(this.x + Math.cos(a) * r), Math.round(this.y + Math.sin(a) * r), 2, 2);
       g.globalAlpha = 1;
     } else if (this.kind === 'text') {
-      g.globalAlpha = 1 - f * f; Font.draw(g, this.o.text, this.x, this.y - f * 16, this.o.col || PAL.white, { align: 'center', shadow: '#000000' }); g.globalAlpha = 1;
+      // los textos flotantes pasan por el sistema de etiquetas: se apartan en vez de pisar otros textos
+      W.label(this.o.text, this.x, this.y - f * 16, this.o.col || PAL.white, { prio: 8, back: false, shadow: '#000000', a: 1 - f * f, noLine: true });
     } else if (this.kind === 'beam') {
       const { x2, y2, col } = this.o; const n = Math.max(1, Math.round(dist(this.x, this.y, x2, y2) / 3));
       g.fillStyle = col; g.globalAlpha = 1 - f;
@@ -6047,7 +6105,19 @@ class Enemy extends Ent {
   contact(W) {
     if (this.harmless || this.freezeT > 0) return;
     const p = W.player;
-    if (overlap(p, this)) p.hurt(W, 1, this.x + this.w / 2);
+    if (!overlap(p, this)) return;
+    if (this.stomped(W, p)) return;
+    p.hurt(W, 1, this.x + this.w / 2);
+  }
+  // PISOTÓN: caer encima rebota y cuenta como golpe (salvo enemigos «que queman»)
+  stomped(W, p) {
+    if (this.spiky || p.dead || p.vy <= 20 || p.prevY == null || p.prevY + p.h > this.y + 5) return false;
+    p.vy = Input.held('jump') ? -290 : -230; p.jumping = true; p.grounded = false; p.invuln = Math.max(p.invuln, 0.2);
+    W.particles.burst(p.cx, p.y + p.h, 6, { col: [PAL.white, PAL.cyan], max: 60 });
+    if (this.hit(W, 1, p.cx, 'stomp') === false) AudioSys.play('land');
+    PROG.stats.stomps = (PROG.stats.stomps || 0) + 1;
+    if (!W.has('tip_stomp')) W.tip('stomp', 'PISOTÓN: caer encima de un enemigo le hace daño y te impulsa. Mantén [' + Input.label('jump') + '] para rebotar más alto.');
+    return true;
   }
   hit(W, dmg, srcX, kind) {
     if (this.dead) return false;
@@ -6064,6 +6134,12 @@ class Enemy extends Ent {
     AudioSys.play('pickup');
     PROG.stats.enemies++;
     Progression.addXP(this.xp || 6);
+    // COMBO: derrotas encadenadas en menos de 3 s
+    W.combo = W.t - (W.lastKillT == null ? -9 : W.lastKillT) < 3 ? (W.combo || 0) + 1 : 1; W.lastKillT = W.t;
+    if (W.combo >= 2) { floatText(W, this.cx, this.y - 20, 'COMBO ×' + W.combo, PAL.gold); Progression.addXP(2 * W.combo, 'combo'); if (W.combo >= 5) Achievements.unlock('combo5'); }
+    // BESTIARIO: la primera derrota de cada amenaza añade su ficha al Codex
+    const bk = 'en_' + this.kind;
+    if (CODEX_BY_ID[bk] && !PROG.codex.includes(bk)) { Codex.unlock(bk, true); UI.toast('BESTIARIO: ' + CODEX_BY_ID[bk].name, PAL.violet); }
     Achievements.check();
     if (this.p.flag) W.flag(this.p.flag);
     if (W.def.onEnemyDeath) W.def.onEnemyDeath(W, this);
@@ -6084,7 +6160,7 @@ class BitCorrupt extends Enemy {
   constructor(cx, cy, p) { super(cx, cy, p, 14, 12, p.hp || 3); this.bits = (p.bits || '10110010').slice(0, this.maxHp + 1).split(''); this.kind = 'bitcorrupt'; this.speed = p.speed || 28; }
   hit(W, dmg, srcX, kind) {
     const r = super.hit(W, dmg, srcX, kind);
-    floatText(W, this.cx, this.y - 8, kind === 'pulse' ? 'XOR: BITS RESTAURADOS' : 'BIT RESTAURADO', PAL.green);
+    if (r) floatText(W, this.cx, this.y - 8, kind === 'pulse' ? 'XOR: BITS RESTAURADOS' : 'BIT RESTAURADO', PAL.green);
     return r;
   }
   render(g) {
@@ -6179,6 +6255,7 @@ class OverHeatEnemy extends Enemy {
     if (Math.random() < dt * 6) W.particles.spawn({ x: this.cx + rand(-5, 5), y: this.y, vy: -25, col: PAL.orange, life: 0.5, kind: 'smoke', size: 2 });
   }
   contact(W) { if (this.cooledT <= 0) super.contact(W); }
+  get spiky() { return this.cooledT <= 0; } // caliente: pisarlo quema
   hit(W, dmg, srcX, kind) {
     if (this.cooledT <= 0) { floatText(W, this.cx, this.y - 8, 'DEMASIADO CALIENTE', PAL.orange); if (!W.has('tip_overheat')) W.tip('overheat', 'OverHeat disipa los ataques. Activa un ventilador cercano (E o un disparo) para enfriarlo y luego atácalo.'); return false; }
     return super.hit(W, dmg, srcX, kind);
@@ -6276,7 +6353,7 @@ class Terminal extends Ent {
     this.flag = p.flag || ('term_' + (p.id || (cx + '_' + cy)));
     this.label = p.label || 'Terminal';
   }
-  init(W) { this.solved = W.has(this.flag); }
+  init(W) { this.solved = W.has(this.flag); if (this.solved && this.p.door) { const d = W.ent(this.p.door); if (d && !d.opened) d.open(W, true); } }
   get prompt() { return this.solved && !this.p.repeat ? 'Revisar ' + this.label : 'Usar ' + this.label; }
   interact(W) {
     const self = this;
@@ -6358,7 +6435,7 @@ class Checkpoint extends Ent {
     for (const e of W.entities) if (e.kind === 'checkpoint') e.active = false;
     this.active = true;
     PROG.checkpoint = { level: W.index, id: this.id, x: this.x, y: this.y + this.h - 15 };
-    W.player.heal(PROG.maxHp);
+    W.player.heal(Chips.maxHp()); if (Chips.on('post')) W.player.postShield = true;
     AudioSys.play('checkpoint');
     UI.toast('CHECKPOINT — progreso guardado', PAL.cyan);
     W.particles.burst(this.cx, this.y + 4, 20, { col: [PAL.cyan, PAL.white], max: 80 });
@@ -6373,7 +6450,7 @@ class Checkpoint extends Ent {
 }
 class Exit extends Ent {
   constructor(cx, cy, p) { super(cx, cy, p, 18, 32); this.kind = 'exit'; this.layer = 0; }
-  isOpen(W) { return !this.p.needs || W.has(this.p.needs); }
+  isOpen(W) { return (!this.p.needs || W.has(this.p.needs)) && (!this.p.boss || W.has(this.p.boss)); }
   update(W, dt) {
     this.t += dt;
     if (this.used || W.player.dead) return;
@@ -6382,7 +6459,7 @@ class Exit extends Ent {
         this.used = true;
         const self = this;
         W.run(function* () { if (self.p.onEnter) yield* self.p.onEnter(W); W.complete(); }, 'exit');
-      } else if (!this.warned) { this.warned = true; W.bark('SYS', this.p.lockedText || 'SALIDA BLOQUEADA: subsistema sin estabilizar.', null, 2.5); }
+      } else if (!this.warned) { this.warned = true; W.bark('SYS', this.p.boss && (!this.p.needs || W.has(this.p.needs)) ? 'SALIDA BLOQUEADA: el guardián de la región sigue activo.' : this.p.lockedText || 'SALIDA BLOQUEADA: subsistema sin estabilizar.', null, 2.5); }
     } else this.warned = false;
   }
   render(g, W) {
@@ -6404,17 +6481,33 @@ class Door extends Ent {
     this.x = this.tx0 * TS; this.y = this.ty0 * TS; this.w = (this.tx1 - this.tx0 + 1) * TS; this.h = (this.ty1 - this.ty0 + 1) * TS;
     this.kind = 'door'; this.layer = 1; this.openT = 0; this.opened = false;
   }
-  init(W) { if (this.p.flag && W.has(this.p.flag)) this.open(W, true); }
+  init(W) {
+    // una puerta que ya se abrió sigue abierta al volver de un checkpoint, de una muerte o de la partida guardada
+    if ((this.p.flag && W.has(this.p.flag)) || W.has('door_' + W.index + '_' + this.id)) this.open(W, true);
+    else if (this.p.gate && (!this.p.openWhen || W.has(this.p.openWhen))) this.open(W, true);
+  }
   setTiles(W, t) { for (const [x, y] of this.p.cells) W.setTile(x, y, t); }
   open(W, instant) {
     if (this.opened) return;
     this.opened = true; this.setTiles(W, T.AIR);
     if (this.p.flag) W.flag(this.p.flag);
+    if (!instant && !this.p.gate && this.id !== 'arena') W.flag('door_' + W.index + '_' + this.id);
     if (instant) this.openT = 1;
     else { AudioSys.play('door'); W.particles.burst(this.cx, this.cy, 12, { col: [PAL.cyan, PAL.white] }); }
   }
   close(W) { this.opened = false; this.openT = 0; this.setTiles(W, T.DOOR); }
-  update(W, dt) { this.t += dt; if (this.opened) this.openT = Math.min(1, this.openT + dt * 2); }
+  update(W, dt) {
+    this.t += dt; if (this.opened) this.openT = Math.min(1, this.openT + dt * 2);
+    if (!this.p.gate || this.opened || Guardians.active(W)) return;
+    // compuerta del guardián: se abre al completar la región; si no, avisa de qué falta
+    if (!this.p.openWhen || W.has(this.p.openWhen)) {
+      this.open(W);
+      if (!W.has('gate_' + W.index)) { W.flag('gate_' + W.index); W.bark(guide(), 'Región estabilizada: se abre la compuerta. Al otro lado espera su guardián.', 'CURIOUS', 4); }
+      return;
+    }
+    const p = W.player, near = p.x + p.w > this.x - 3 && p.x < this.x + this.w + 3 && p.y + p.h > this.y && p.y < this.y + this.h;
+    if (near && !this.warned) { this.warned = true; W.bark('SYS', this.p.lockedText, null, 3); } else if (!near) this.warned = false;
+  }
   render(g, W) {
     if (this.openT >= 1) return;
     const hh = Math.round(this.h * (1 - this.openT));
@@ -7284,7 +7377,8 @@ class GameplayState {
   }
   worldHint() {
     const W = this.W;
-    const h = W.def.hint ? W.def.hint(W) : null;
+    let h = null;
+    try { h = W.def.hint ? W.def.hint(W) : null; } catch (e) { console.warn('pista', e); } // una pista nunca debe romper la partida
     const spk = Voice.speaker();
     const text = h ? h.text : 'Explora: busca terminales con «!» y sigue la misión actual (L).';
     if (spk === 'TERMINAL') W.bark('SYS', 'AYUDA: ' + text, null, 5);
@@ -7306,7 +7400,9 @@ function drawHUD(g, W, st) {
   // panel de estado (arriba izquierda)
   g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(4, 4, 132, 34);
   g.fillStyle = PAL.panelB; g.fillRect(4, 38, 132, 1);
-  for (let i = 0; i < PROG.maxHp; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? PAL.red : '#3A1A20');
+  const mh = Chips.maxHp();
+  for (let i = 0; i < mh; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? (i >= PROG.maxHp ? '#FF9ED8' : PAL.red) : '#3A1A20');
+  if (p.postShield) Font.draw(g, '◆', 10 + mh * 9, 5, Math.floor(W.t * 3) % 2 ? PAL.cyan : '#9FF6FF');
   if (Settings.data.assist) Font.draw(g, 'ASIST.', 132, 5, PAL.gray, { align: 'right' });
   Font.draw(g, 'EN', 8, 15, PAL.cyan);
   UI.bar(g, 22, 19, 108, 4, p.energy / Progression.maxEnergy(), PAL.cyan);
@@ -7326,7 +7422,7 @@ function drawHUD(g, W, st) {
     PROG.abilities.forEach((kk, i) => { g.fillStyle = i === PROG.selAbility ? ABILITIES[kk].col : PAL.grayD; g.fillRect(W_HUD_R - 50 + i * 5, 20, 4, 3); });
   } else Font.draw(g, 'SIN HABILIDADES', W_HUD_R - 146, 9, PAL.gray);
   // misión y concepto
-  const q = Quests.currentMain();
+  const q = Guardians.active(W) ? null : Quests.currentMain(); // en combate con un guardián, la barra del jefe manda
   let qy = 30;
   if (q) {
     let txt = '▸ ' + q.objective;
@@ -7337,7 +7433,7 @@ function drawHUD(g, W, st) {
     Font.draw(g, txt, W_HUD_R - 8, qy - 1, PAL.white, { align: 'right' });
     qy += 13;
   }
-  if (W.def.concepts) {
+  if (W.def.concepts && !Guardians.active(W)) {
     const ct = UI.fit('CONCEPTO: ' + W.def.concepts.map(c => CONCEPTS[c]).join(' · '), 300);
     const cw = Font.measure(ct) + 8;
     g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(W_HUD_R - 4 - cw, qy, cw, 12);
@@ -7349,6 +7445,9 @@ function drawHUD(g, W, st) {
     UI.bar(g, 34, 46, 80, 4, W.heat / 100, W.heat > 75 ? PAL.red : PAL.orange);
   }
   if (W.def.hud) W.def.hud(g, W);
+  Guardians.drawHUD(g, W);
+  drawPrefetchRadar(g, W);
+  if (Guardians.quizShown(W)) UI.toastTop = Math.max(UI.toastTop || 0, 72);
   // aviso de interacción
   if (p.near && !W.scripts.blocking) {
     const txt = p.near.prompt || p.near.label || 'Interactuar';
@@ -7364,7 +7463,7 @@ function drawHUD(g, W, st) {
     const b = W.barks[0];
     const spk = SPEAKERS[b.s] || SPEAKERS.SYS;
     const lines = UI.wrap(b.t, 300);
-    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = 58;
+    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : 58;
     const a = b.time < 0.15 ? b.time / 0.15 : b.dur - b.time < 0.3 ? (b.dur - b.time) / 0.3 : 1;
     g.globalAlpha = clamp(a, 0, 1);
     UI.toastTop = by + bh + 4; // los avisos se colocan debajo del comentario
@@ -7447,7 +7546,7 @@ class ConfirmState extends MenuState {
 // ---------- Reiniciar el nivel: instantánea del progreso al empezar el nivel ----------
 // Red de seguridad universal: si algo se queda atrás, se puede volver a empezar el nivel
 // con el estado con el que se entró (tras su introducción). El aprendizaje y las estadísticas no se tocan.
-const LEVEL_SNAP_FIELDS = ['flags', 'abilities', 'selAbility', 'quests', 'codex', 'blueprint', 'bpTabs', 'fragments', 'letters', 'historic', 'choices', 'trust', 'xp', 'playerLevel', 'hp', 'maxHp'];
+const LEVEL_SNAP_FIELDS = ['flags', 'abilities', 'selAbility', 'quests', 'codex', 'blueprint', 'bpTabs', 'fragments', 'letters', 'historic', 'choices', 'trust', 'xp', 'playerLevel', 'hp', 'maxHp', 'chips', 'equip'];
 function takeLevelSnap(n) {
   const d = {};
   for (const k of LEVEL_SNAP_FIELDS) if (PROG[k] !== undefined) d[k] = JSON.parse(JSON.stringify(PROG[k]));
@@ -7473,6 +7572,7 @@ class PauseState extends MenuState {
       { label: 'MISIONES', fn: () => Game.push(new QuestLogState()) },
       { label: 'PROGRESO', fn: () => Game.push(new ProgressState()) },
       { label: 'MEMORIAS', fn: () => Game.push(new MemoriesState()) },
+      { label: 'FIRMWARE', fn: () => Game.push(new FirmwareState()) },
       { label: 'CONTROLS', fn: () => Game.push(new ControlsState()) },
       { label: 'SETTINGS', fn: () => Game.push(new SettingsState()) },
       { label: 'RESTART CHECKPOINT', fn: () => Game.push(new ConfirmState('¿Volver al último checkpoint?', () => { Game.loadLevel(PROG.level, { fromCheckpoint: true }); })) },
@@ -7576,7 +7676,7 @@ class ControlsState {
 }
 
 // ---------------------------------------------------------------- CODEX ----
-const CODEX_CATS = ['FUNDAMENTOS', 'PLACA BASE', 'CPU', 'MEMORIA', 'BUSES', 'E/S', 'RENDIMIENTO', 'SISTEMA', 'HISTORIA'];
+const CODEX_CATS = ['FUNDAMENTOS', 'PLACA BASE', 'CPU', 'MEMORIA', 'BUSES', 'E/S', 'RENDIMIENTO', 'AMENAZAS', 'SISTEMA', 'HISTORIA'];
 class CodexState {
   constructor() { this.overlay = true; this.sel = 0; this.t = 0; this.list = CODEX_CATS.flatMap(c => CODEX.filter(e => e.cat === c)); const k = this.list.findIndex(e => PROG.codex.includes(e.id)); this.sel = Math.max(0, k); this.scroll = 0; }
   update(dt) {
@@ -7622,7 +7722,8 @@ class CodexState {
     txt(e.cat, x, y, PAL.violet); y += 12;
     UI.wrap(e.name, w, 2).forEach(l => { txt(l, x, y, PAL.white, { s: 2 }); y += 23; });
     const field = (label, text, col) => { if (!text) return; txt(label, x, y, col || PAL.cyan); y += 12; for (const l of UI.wrap(text, w - 6)) { txt(l, x + 6, y, PAL.grayL); y += 12; } y += 3; };
-    field('DEFINICIÓN', e.def); field('FUNCIÓN', e.func); field('ENTRADAS', e.inp); field('SALIDAS', e.out); field('CONEXIONES', e.conn);
+    const lb = e.labels || ['DEFINICIÓN', 'FUNCIÓN', 'ENTRADAS', 'SALIDAS', 'CONEXIONES'];
+    field(lb[0], e.def); field(lb[1], e.func); field(lb[2], e.inp); field(lb[3], e.out); field(lb[4], e.conn);
     if (e.lat || e.cap) {
       if (inView(y, 11)) {
         Font.draw(g, 'LATENCIA RELATIVA', x, y, PAL.cyan); UI.pips(g, x + 108, y + 4, e.lat, 5, PAL.amber);
@@ -8063,6 +8164,9 @@ function startTeacherLevel(i) {
   (pre.codex || []).forEach(c => Codex.unlock(c, true));
   PROG.blueprint = (pre.bp || ['cpu']).slice(); PROG.bpTabs = (pre.tabs || ['hw']).slice();
   PROG.xp = pre.xp || 0; PROG.playerLevel = Progression.levelFor(PROG.xp);
+  // chips de los guardianes anteriores, equipados hasta llenar la memoria de firmware
+  PROG.chips = CHIP_ORDER.filter(k => CHIPS[k].lv < i); PROG.equip = [];
+  for (const k of PROG.chips) if (Chips.used() + CHIPS[k].kb <= Chips.cap()) PROG.equip.push(k);
   Sprites.buildByte(Progression.upgFor(PROG.playerLevel));
   Game.loadLevel(i);
 }
@@ -9585,7 +9689,7 @@ const LEVEL6 = {
     s: { type: 'screen', id: 'dev1', sw: 3, sh: 2, idle: 'bars' }, z: { type: 'screen', id: 'dev2', sw: 3, sh: 2, idle: 'text' },
     p: { type: 'npc', npc: 'PROC', variant: 4, wander: 16, talk: function* (W) { yield* W.say([['', 'Un proceso de impresión espera turno: «¿Me toca? ¿Ya me toca? ¿Y ahora?»'], ['NEXO', 'Eso es polling en estado puro.', 'NEUTRAL']]); } },
     q: { type: 'npc', npc: 'PROC', variant: 0, wander: 10, talk: function* (W) { yield* W.say([['', 'Un proceso de red: «¡IRQ! ¡IRQ! ...Perdón, costumbre.»']]); } },
-    i: { type: 'npc', npc: 'IO', name: 'IO', talk: L6_ioTalk },
+    i: { type: 'npc', npc: 'IO', id: 'io', name: 'IO', talk: L6_ioTalk },
     y: { type: 'packetstorm', id: 'ps1', rate: 2.6 },
     D: { type: 'door', id: 'd1', color: PAL.red, flag: 'L6_storm' },
     R: { type: 'trigger', id: 'reunion' },
@@ -9666,7 +9770,7 @@ const LEVEL6 = {
   },
   hint(W) {
     const pre = PROG.flags.nexoReturned ? 'Hecho: ' : '';
-    if (!PROG.abilities.includes('interruptShield')) return { text: pre + 'IO, el operador de la estación, conoce el protocolo de interrupciones.', x: W.ent('i').cx, y: W.ent('i').y };
+    if (!PROG.abilities.includes('interruptShield')) return { text: pre + 'IO, el operador de la estación, conoce el protocolo de interrupciones.', x: W.ent('io').cx, y: W.ent('io').y };
     if (!W.has('L6_storm')) return { text: pre + 'PacketStorm sólo es vulnerable interrumpido: usa INTERRUPT SHIELD cerca de él.', x: W.ent('ps1') ? W.ent('ps1').cx : null, y: W.ent('ps1') ? W.ent('ps1').y : null };
     if (!W.has('term_t_poll')) return { text: pre + 'La terminal del teclado: ¿polling o interrupciones?', x: W.ent('t_poll').cx, y: W.ent('t_poll').y };
     if (!W.has('L6_done')) return { text: pre + 'La estación de prioridades, al final del distrito.', x: W.ent('t_prio') ? W.ent('t_prio').cx : null, y: W.ent('t_prio') ? W.ent('t_prio').y : null };
@@ -11087,6 +11191,1315 @@ const LEVEL_PRESETS = LEVELS.map((L, i) => {
   const codex = ['hwsw', 'ipo', 'mb', 'vrm', 'cpu', 'pc', 'cu', 'cycle', 'clock', 'alu', 'gates', 'hierarchy', 'cache', 'ram', 'busdata', 'busaddr', 'busctrl', 'interrupt', 'polling', 'bottleneck', 'freqipc', 'parallel', 'kernel'].slice(0, [0, 2, 4, 9, 11, 14, 17, 19, 22, 23, 23][i]);
   return { abilities: ABILITY_ORDER.slice(0, Math.max(0, Math.min(8, i - 1))), flags: f, bp, tabs, codex, xp: [0, 150, 350, 600, 900, 1250, 1650, 2100, 2600, 3150, 3700][i] };
 });
+
+
+// ==================== 25_guardians.js ====================
+// =============================================================================
+// GUARDIANES DE REGIÓN — un jefe al final de cada nivel (00–08). CASCADE sigue siendo el jefe final.
+// · Cada guardián encarna un FALLO del concepto de su región y tiene patrones telegrafiados.
+// · CONSULTA: al perder vida se blinda y pregunta; se responde DISPARANDO (o con E) al orbe correcto.
+//   Acertar lo deja VULNERABLE (daño doble); fallar sólo elimina ese orbe y explica por qué.
+// · DEBILIDAD: la habilidad aprendida en la región (como en Mega Man, pero con sentido: el concepto
+//   que acabas de entender es lo que desmonta el fallo).
+// · Arena al final del nivel: la compuerta se abre al completar la región, se cierra durante el
+//   combate y vuelve a abrirse al vencer. Checkpoint en la entrada; la salida exige la victoria.
+// =============================================================================
+// «[{A}]», «[{Q}]», «[{E}]» → teclas actuales de ataque, habilidad e interacción
+const gKeys = t => String(t || '').replace(/\{A\}/g, Input.label('attack')).replace(/\{Q\}/g, Input.label('ability')).replace(/\{E\}/g, Input.label('interact'));
+const Guardians = {
+  byLevel: {},
+  quizShown(W) { const B = W && W.v.guardian; return !!(B && B.state === 'quiz' && W.v.gQuiz); },
+  active(W) { const B = W && W.v.guardian; return !!(B && !B.dead && ['intro', 'fight', 'quiz', 'stun', 'dying'].includes(B.state)); },
+  flag(spec) { return 'G_' + spec.id; },
+  // se llama al crear el mundo de un nivel con guardián
+  setup(W) {
+    const def = W.def, G = def.guardian; if (!G) return;
+    const spec = GUARDIAN_SPECS[G.id];
+    if (!spec) return;
+    if (W.has(this.flag(spec))) { W.v.guardianDone = true; return; }
+    const A = G.arena;
+    const x = A.x0 + (spec.mode === 'hover' ? (A.x1 - A.x0) * 0.62 : (A.x1 - A.x0) * 0.72) - spec.w / 2;
+    const y = spec.mode === 'hover' ? A.floor - spec.h - (spec.alt || 96) : A.floor - spec.h;
+    const B = new Guardian(spec, x, y, A, G);
+    W.addEntity(B); W.v.guardian = B;
+    if (spec.twin) { const T = new GuardianPart(B, spec.twin); B.twin = T; W.addEntity(T); }
+    if (spec.setup) spec.setup(W, B);
+  },
+  // pista contextual durante el combate
+  hint(W) {
+    const B = W.v.guardian; if (!B || !this.active(W)) return null;
+    if (B.state === 'quiz') { const q = W.v.gQuiz; const ok = q && q.orbs.find(o => !o.dead && o.ok); return { text: 'Consulta del guardián: dispara (o pulsa [' + Input.label('interact') + ']) al orbe con la respuesta correcta.', x: ok ? ok.cx : null, y: ok ? ok.y : null }; }
+    return { text: gKeys(B.spec.tip), x: B.cx, y: B.y };
+  },
+  // HUD: barra de vida, consulta y cartel de presentación
+  drawHUD(g, W) {
+    const B = W.v.guardian;
+    if (W.v.gCard) {
+      const c = W.v.gCard; c.t += 1 / 60;
+      if (c.t > 3) W.v.gCard = null;
+      // entra y sale deslizándose (sin transparencia: nada se ve a través del cartel)
+      const y = 128 + Math.round((c.t < 0.25 ? (0.25 - c.t) * 160 : 0) + (c.t > 2.75 ? (c.t - 2.75) * 400 : 0)), tw = Math.max(Font.measure(c.name, 2), Font.measure(c.sub)) + 40;
+      g.fillStyle = 'rgba(8,4,12,0.9)'; g.fillRect(W_HUD_R / 2 - tw / 2, y, tw, 58);
+      g.fillStyle = c.col; g.fillRect(W_HUD_R / 2 - tw / 2, y, tw, 2); g.fillRect(W_HUD_R / 2 - tw / 2, y + 56, tw, 2);
+      Font.draw(g, 'GUARDIÁN DE LA REGIÓN', W_HUD_R / 2, y + 3, PAL.gray, { align: 'center' });
+      Font.draw(g, c.name, W_HUD_R / 2, y + 14, c.col, { align: 'center', s: 2 });
+      Font.draw(g, c.sub, W_HUD_R / 2, y + 42, PAL.grayL, { align: 'center' });
+      g.globalAlpha = 1;
+    }
+    if (!B || B.dead || !['fight', 'quiz', 'stun'].includes(B.state)) return;
+    const sp = B.spec, x = 142, w = 184, y = 4;
+    g.fillStyle = 'rgba(8,5,12,0.9)'; g.fillRect(x, y, w, 24);
+    g.fillStyle = sp.col; g.fillRect(x, y + 23, w, 1);
+    Font.draw(g, UI.fit(sp.name, w - 60), x + 4, y, sp.col);
+    const st = B.state === 'quiz' ? 'CONSULTA' : B.state === 'stun' ? '¡DAÑO ×2!' : B.guardOpen(W, null) ? '' : 'BLINDADO';
+    if (st) Font.draw(g, st, x + w - 4, y, B.state === 'stun' ? PAL.gold : B.state === 'quiz' ? PAL.cyan : PAL.gray, { align: 'right' });
+    const bx = x + 4, bw = w - 8, by = y + 14;
+    g.fillStyle = '#1A0A12'; g.fillRect(bx, by, bw, 6);
+    const f = clamp(B.shownHp / B.maxHp, 0, 1), f2 = clamp(B.hp / B.maxHp, 0, 1);
+    g.fillStyle = '#FFE9A8'; g.fillRect(bx, by, Math.round(bw * f), 6);
+    g.fillStyle = B.state === 'stun' ? PAL.gold : sp.col; g.fillRect(bx, by, Math.round(bw * f2), 6);
+    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(bx, by, Math.round(bw * f2), 1);
+    for (const th of B.thresholds) { g.fillStyle = '#050709'; g.fillRect(bx + Math.round(bw * th) - 1, by - 1, 2, 8); }
+    // consulta
+    const q = W.v.gQuiz;
+    if (B.state === 'quiz' && q) {
+      const lines = UI.wrap('CONSULTA: ' + q.q.q, 398).slice(0, 2);
+      const h = lines.length * 12 + 4, qx = W_HUD_R / 2 - 206, qy = 42;
+      g.fillStyle = 'rgba(4,14,20,0.92)'; g.fillRect(qx, qy, 412, h);
+      g.fillStyle = PAL.cyan; g.fillRect(qx, qy, 2, h);
+      Font.drawLines(g, lines, qx + 7, qy, PAL.white, { hl: PAL.cyan });
+      UI.toastTop = Math.max(UI.toastTop || 0, qy + h + 4);
+    }
+  }
+};
+
+// ---------------------------------------------------------------- orbes de respuesta ----
+class AnswerOrb extends Ent {
+  constructor(W, x, y, text, ok, idx) {
+    super(0, 0, {}, 16, 16);
+    this.x = x - 8; this.y = y - 8; this.baseY = this.y; this.text = text; this.ok = ok; this.idx = idx;
+    this.kind = 'answer'; this.layer = 2; this.interactive = true; this.alwaysUpdate = true; this.pop = 0;
+  }
+  get prompt() { return 'Elegir «' + this.text + '»'; }
+  update(W, dt) { this.t += dt; this.pop = Math.min(1, this.pop + dt * 3); this.y = this.baseY + Math.sin(this.t * 2.4 + this.idx) * 2; }
+  onPing(W) { this.choose(W); return true; }
+  interact(W) { this.choose(W); }
+  choose(W) {
+    const q = W.v.gQuiz, B = W.v.guardian;
+    if (this.dead || !q || !B || B.state !== 'quiz') return;
+    B.answer(W, this);
+  }
+  render(g, W) {
+    const cx = Math.round(this.cx), cy = Math.round(this.cy), s = this.pop;
+    const col = ['#45E5FF', '#FFD166', '#71FF9A', '#FF9ED8'][this.idx % 4];
+    g.fillStyle = shade(col, 0.35); g.globalAlpha = 0.5; g.fillRect(cx - 9, cy - 9, 18, 18); g.globalAlpha = 1;
+    const r = Math.round(7 * s);
+    for (let yy = -r; yy <= r; yy++) { const ww = Math.round(Math.sqrt(r * r - yy * yy)); g.fillStyle = yy < -r / 3 ? '#FFFFFF' : col; g.fillRect(cx - ww, cy + yy, ww * 2, 1); }
+    g.fillStyle = shade(col, 0.5); g.fillRect(cx - 2, cy - 2, 4, 4);
+    W.label(this.text, cx, this.y - 15, col, { prio: 6 });
+  }
+}
+AnswerOrb.prototype.glow = function () { return [this.cx, this.cy, 16, '#9FF6FF', 0.4]; };
+
+// ---------------------------------------------------------------- repertorio de ataques ----
+// Cada ataque: aviso (telegrafiado) → acción → recuperación. update devuelve true al terminar.
+const gShot = (W, B, x, y, vx, vy, o) => { const p = new Projectile(x, y, vx, vy, Object.assign({ owner: 'enemy', col: B.spec.shot || B.spec.col, life: 3.2 }, o)); p.src = B; W.projectiles.push(p); return p; };
+const gWave = (W, B, x, dir, o) => gShot(W, B, x, B.A.floor - 6, dir * ((o && o.spd) || 120), 0, Object.assign({ kind: 'wave', life: 4 }, o));
+const GMOVES = {
+  // salto hacia el jugador; al caer, ondas por el suelo (se esquivan saltando)
+  hop: {
+    start(W, B, m) { m.tele = 0.45; },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; B.squash = 1; if (m.tele <= 0) { const dx = W.player.cx - B.cx; B.vx = clamp(dx / 0.9, -170, 170) * B.speedK; B.vy = -320; B.grounded = false; m.air = true; AudioSys.play('jump'); } return false; }
+      if (m.air && B.grounded) { m.air = false; m.land = 0.3; W.shake(3, 0.25); AudioSys.play('land'); gWave(W, B, B.cx - 10, -1); gWave(W, B, B.cx + 10, 1); B.vx = 0; }
+      if (m.land != null) { m.land -= dt; return m.land <= 0; }
+      return false;
+    }
+  },
+  // abanico de disparos apuntados
+  spread: {
+    start(W, B, m) { m.tele = 0.5; m.k = B.spec.volleys || 2; m.gap = 0; },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; return false; }
+      m.gap -= dt;
+      if (m.gap <= 0 && m.k > 0) {
+        m.k--; m.gap = 0.38;
+        const n = B.spec.fan || 3, p = W.player, ox = B.cx, oy = B.y + B.h * 0.45;
+        const a0 = Math.atan2(p.y + 7 - oy, p.cx - ox);
+        for (let i = 0; i < n; i++) { const a = a0 + (i - (n - 1) / 2) * 0.22; gShot(W, B, ox, oy, Math.cos(a) * 120 * B.speedK, Math.sin(a) * 120 * B.speedK, { kind: B.spec.shotKind }); }
+        AudioSys.play('attack');
+      }
+      return m.k <= 0 && m.gap <= 0;
+    }
+  },
+  // lluvia desde el techo sobre marcas visibles en el suelo
+  rain: {
+    start(W, B, m) {
+      m.tele = 0.85; m.xs = [];
+      const n = 4 + B.phase, px = W.player.cx;
+      for (let i = 0; i < n; i++) m.xs.push(clamp(px + (i - (n - 1) / 2) * 44 + rand(-10, 10), B.A.x0 + 12, B.A.x1 - 12));
+      B.marks = m.xs; AudioSys.play('alarm');
+    },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; if (m.tele <= 0) { for (const x of m.xs) gShot(W, B, x, B.A.top + 6, 0, 165, { kind: B.spec.rainKind || 'bolt', life: 3 }); B.marks = null; m.rec = 0.6; } return false; }
+      m.rec -= dt; return m.rec <= 0;
+    }
+  },
+  // embestida horizontal por el suelo (se esquiva saltando por encima o desde una plataforma)
+  charge: {
+    start(W, B, m) { m.tele = 0.65; m.dir = W.player.cx > B.cx ? 1 : -1; B.face = m.dir; AudioSys.play('alarm'); },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; B.vx = -m.dir * 12; B.squash = 1; return false; }
+      if (!m.go) { m.go = true; AudioSys.play('dash'); }
+      B.vx = m.dir * 235 * B.speedK;
+      if (Math.random() < 0.5) W.particles.spawn({ x: B.cx - m.dir * B.w / 2, y: B.y + B.h - 2, vx: -m.dir * 40, vy: -20, col: PAL.grayL, life: 0.3, kind: 'smoke', size: 2 });
+      if ((m.dir > 0 && B.x + B.w >= B.A.x1 - 6) || (m.dir < 0 && B.x <= B.A.x0 + 6)) { B.vx = 0; W.shake(4, 0.3); AudioSys.play('land'); B.face = -m.dir; return true; }
+      return false;
+    }
+  },
+  // rayo horizontal a la altura del jugador: aviso con una línea, luego el rayo
+  beam: {
+    start(W, B, m) { m.tele = 0.9; m.y = clamp(W.player.y + 8, B.A.top + 10, B.A.floor - 6); m.on = 0; AudioSys.play('glitch'); },
+    update(W, B, m, dt) {
+      B.beam = { y: m.y, on: m.tele <= 0, t: m.tele };
+      if (m.tele > 0) { m.tele -= dt; return false; }
+      m.on += dt;
+      const p = W.player;
+      if (p.y < m.y + 3 && p.y + p.h > m.y - 3) p.hurt(W, 1, B.cx);
+      if (m.on > 0.4) { B.beam = null; return true; }
+      return false;
+    }
+  },
+  // proyectiles en órbita que después salen disparados
+  orbit: {
+    start(W, B, m) { m.t = 0; m.ps = []; for (let i = 0; i < 6; i++) m.ps.push(gShot(W, B, B.cx, B.cy, 0, 0, { life: 6, kind: B.spec.shotKind })); AudioSys.play('shield'); },
+    update(W, B, m, dt) {
+      m.t += dt;
+      const r = Math.max(B.w, B.h) * 0.5 + 14;
+      m.ps.forEach((p, i) => { if (p.dead || p.free) return; const a = m.t * 3 + i * Math.PI / 3; p.x = B.cx + Math.cos(a) * r; p.y = B.cy + Math.sin(a) * r; p.vx = 0; p.vy = 0; });
+      if (m.t > 1.6) { m.ps.forEach(p => { if (p.dead) return; const a = Math.atan2(p.y - B.cy, p.x - B.cx); p.vx = Math.cos(a) * 110; p.vy = Math.sin(a) * 110; p.free = true; }); AudioSys.play('attack'); return true; }
+      return false;
+    }
+  },
+  // invoca esbirros del concepto (máximo 3 a la vez)
+  summon: {
+    start(W, B, m) { m.tele = 0.6; },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; return false; }
+      const alive = W.entities.filter(e => e.gMinion && !e.dead).length;
+      for (let i = 0; i < Math.min(2, 3 - alive); i++) {
+        const x = clamp(B.cx + (i ? 60 : -60), B.A.x0 + 24, B.A.x1 - 24);
+        const t = B.spec.minion || 'bitcorrupt', fly = t === 'packetstorm' || t === 'cachemiss';
+        const e = W.spawnEnt(t, x, B.A.floor - 16, { px: x, py: fly ? B.A.top + 50 : B.A.floor - 14, hp: t === 'bitcorrupt' ? 2 : undefined, range: 6 });
+        if (e) { e.gMinion = true; W.particles.burst(e.cx, e.cy, 12, { col: [B.spec.col, PAL.white], kind: 'bit' }); }
+      }
+      AudioSys.play('glitch');
+      return true;
+    }
+  },
+  // teletransporte: aparece un «fantasma» en el destino antes de saltar allí
+  warp: {
+    start(W, B, m) {
+      m.t = 0; const sp = B.spec.spots;
+      let s = sp ? pick(sp.filter(q => Math.abs(B.A.x0 + q[0] * TS - B.x) > 40)) : null;
+      m.to = s ? { x: B.A.x0 + s[0] * TS - B.w / 2, y: B.A.floor - B.h - s[1] * TS } : { x: clamp(W.player.cx + rand(-120, 120), B.A.x0 + 8, B.A.x1 - B.w - 8) - B.w / 2, y: B.homeY };
+      B.ghost = m.to; AudioSys.play('tick');
+    },
+    update(W, B, m, dt) {
+      m.t += dt;
+      if (m.t > 0.55 / B.speedK && !m.done) { m.done = true; W.particles.burst(B.cx, B.cy, 14, { col: [B.spec.col, PAL.white], kind: 'glitch' }); B.x = m.to.x; B.y = m.to.y; B.homeY = m.to.y; B.ghost = null; W.particles.burst(B.cx, B.cy, 14, { col: [B.spec.col, PAL.white] }); AudioSys.play('blip'); }
+      return m.t > 0.8 / B.speedK;
+    }
+  },
+  // chispas que recorren el suelo en serie
+  wave: {
+    start(W, B, m) { m.tele = 0.5; m.k = 3 + (B.phase > 1 ? 1 : 0); m.gap = 0; m.dir = W.player.cx > B.cx ? 1 : -1; },
+    update(W, B, m, dt) {
+      if (m.tele > 0) { m.tele -= dt; return false; }
+      m.gap -= dt;
+      if (m.gap <= 0 && m.k > 0) { m.k--; m.gap = 0.42; gWave(W, B, B.cx, m.dir, { kind: B.spec.waveKind || 'wave', spd: 130 * B.speedK }); AudioSys.play('pulse'); }
+      return m.k <= 0 && m.gap <= 0;
+    }
+  },
+  // (flotantes) se coloca sobre el jugador y cae en picado; ondas al tocar el suelo
+  slam: {
+    start(W, B, m) { m.ph = 0; m.t = 0; },
+    update(W, B, m, dt) {
+      m.t += dt;
+      if (m.ph === 0) { const tx = clamp(W.player.cx - B.w / 2, B.A.x0 + 6, B.A.x1 - B.w - 6); B.x = lerp(B.x, tx, 1 - Math.exp(-dt * 6)); B.y = lerp(B.y, B.A.floor - B.h - 120, 1 - Math.exp(-dt * 6)); if (m.t > 0.75) { m.ph = 1; m.t = 0; AudioSys.play('alarm'); } return false; }
+      if (m.ph === 1) { B.squash = 1; if (m.t > 0.35) { m.ph = 2; m.t = 0; } return false; }
+      if (m.ph === 2) { B.y += 430 * dt; if (B.y + B.h >= B.A.floor) { B.y = B.A.floor - B.h; m.ph = 3; m.t = 0; W.shake(5, 0.3); AudioSys.play('land'); gWave(W, B, B.cx - 12, -1); gWave(W, B, B.cx + 12, 1); } return false; }
+      if (m.ph === 3) { if (m.t > 0.45) { m.ph = 4; m.t = 0; } return false; }
+      B.y = lerp(B.y, B.homeY, 1 - Math.exp(-dt * 4));
+      return m.t > 0.7;
+    }
+  }
+};
+
+// ---------------------------------------------------------------- el guardián ----
+class Guardian extends Ent {
+  constructor(spec, x, y, A, G) {
+    super(0, 0, { id: 'guardian' }, spec.w, spec.h);
+    this.spec = spec; this.A = A; this.G = G; this.x = x; this.y = y; this.homeX = x; this.homeY = y;
+    this.id = 'guardian'; this.kind = 'guardian'; this.enemy = true; this.big = true; this.layer = 2; this.alwaysUpdate = true;
+    this.hp = this.maxHp = spec.hp; this.shownHp = spec.hp; this.state = 'hidden'; this.alpha = 0;
+    this.flashT = 0; this.stunT = 0; this.freezeT = 0; this.vx = 0; this.vy = 0; this.face = -1; this.squash = 0;
+    this.idleT = 1.2; this.move = null; this.moveIx = 0; this.phase = 0; this.grounded = spec.mode !== 'hover';
+    this.nQuiz = Math.min(2, (spec.qs || []).length);
+    this.thresholds = this.nQuiz === 2 ? [2 / 3, 1 / 3] : this.nQuiz === 1 ? [0.5] : [];
+    this.quizzesDone = 0; this.usedQ = []; this.marks = null; this.beam = null; this.ghost = null;
+  }
+  get speedK() { return 1 + this.phase * 0.16; }
+  // ¿puede recibir daño ahora mismo? (mecánica de su concepto)
+  guardOpen(W, kind) { return !this.spec.guard || this.spec.guard.open(W, this, kind); }
+  wake(W) {
+    if (this.state !== 'hidden') return;
+    this.state = 'intro';
+    const self = this;
+    W.run(function* () { yield* G_intro(W, self); }, 'guardian_intro');
+  }
+  update(W, dt) {
+    this.t += dt; this.flashT = Math.max(0, this.flashT - dt); this.squash = Math.max(0, this.squash - dt * 4);
+    this.shownHp = approach(this.shownHp, this.hp, dt * this.maxHp * 0.4);
+    if (this.state === 'hidden') {
+      const p = W.player, G = this.G;
+      const inside = p.x > this.A.x0 + (G.wakeX || 4) * TS && p.x < this.A.x1 && p.y > this.A.top - 8 && p.y < this.A.floor;
+      if (inside && (!G.needs || W.has(G.needs)) && W.controlEnabled && !W.scripts.busy && !p.dead) this.wake(W);
+      return;
+    }
+    if (this.state === 'intro' || this.state === 'dying') return; // los anima su guion
+    const sp = this.spec;
+    if (sp.update) sp.update(W, this, dt);
+    if (this.freezeT > 0) { this.freezeT -= dt; this.physics(W, dt, true); return; }
+    if (this.state === 'stun') { this.stunT -= dt; this.physics(W, dt, true); this.contact(W, true); if (this.stunT <= 0) { this.state = 'fight'; this.idleT = 0.6; } return; }
+    if (this.state === 'quiz') { this.physics(W, dt, true); if (sp.mode === 'hover') { this.x = lerp(this.x, (this.A.x0 + this.A.x1) / 2 - this.w / 2, 1 - Math.exp(-dt * 2)); this.y = lerp(this.y, this.A.floor - this.h - 116 + Math.sin(this.t * 2) * 3, 1 - Math.exp(-dt * 2)); } return; }
+    // combate
+    if (this.move) {
+      if (GMOVES[this.move.n].update(W, this, this.move, dt)) { this.move = null; this.idleT = rand(0.65, 1.2) / this.speedK; }
+    } else {
+      this.idle(W, dt);
+      this.idleT -= dt;
+      if (this.idleT <= 0) this.startMove(W);
+    }
+    this.physics(W, dt, false);
+    this.contact(W);
+    // FETCH DASH a través del guardián (debilidad del ciclo)
+    const p = W.player;
+    if (p.dashT > 0 && !p.gDash && overlap(p, this)) { p.gDash = true; if (sp.weak && sp.weak.kind === 'dash') this.hit(W, 1, p.cx, 'dash'); }
+    if (p.dashT <= 0) p.gDash = false;
+  }
+  idle(W, dt) {
+    const p = W.player, sp = this.spec;
+    this.face = p.cx > this.cx ? 1 : -1;
+    if (sp.mode === 'hover') {
+      const tx = clamp(p.cx - this.w / 2 - this.face * 70, this.A.x0 + 6, this.A.x1 - this.w - 6);
+      this.x = lerp(this.x, tx, 1 - Math.exp(-dt * 0.9));
+      this.y = lerp(this.y, this.homeY + Math.sin(this.t * 1.7) * 6, 1 - Math.exp(-dt * 3));
+    } else if (Math.abs(p.cx - this.cx) > 50) this.vx = this.face * (sp.walk || 26) * this.speedK;
+    else this.vx = 0;
+  }
+  startMove(W) {
+    const sp = this.spec, list = sp.moves[Math.min(this.phase, sp.moves.length - 1)];
+    let n = list[this.moveIx % list.length]; this.moveIx++;
+    if (Math.random() < 0.3) n = pick(list);
+    if (n === 'summon' && W.entities.filter(e => e.gMinion && !e.dead).length >= 2) n = list.find(k => k !== 'summon') || n;
+    this.move = { n }; GMOVES[n].start(W, this, this.move);
+    if (sp.onMove) sp.onMove(W, this, n);
+  }
+  physics(W, dt, still) {
+    if (this.spec.mode === 'hover') { if (still && this.state === 'stun') { this.y = Math.min(this.A.floor - this.h, this.y + 120 * dt); } return; }
+    if (still) this.vx = approach(this.vx, 0, 600 * dt);
+    this.vy = Math.min(this.vy + 950 * dt, 360);
+    this.hitWall = 0;
+    W.move(this, dt);
+    if (this.x < this.A.x0 + 2) { this.x = this.A.x0 + 2; this.vx = 0; }
+    if (this.x + this.w > this.A.x1 - 2) { this.x = this.A.x1 - 2 - this.w; this.vx = 0; }
+  }
+  contact(W, safe) {
+    const p = W.player;
+    if (!overlap(p, this) || p.dead) return;
+    // pisotón: caer encima rebota (y daña si no está blindado)
+    if (p.vy > 20 && (p.prevY == null || p.prevY + p.h <= this.y + 5)) {
+      p.vy = Input.held('jump') ? -300 : -240; p.jumping = true; p.grounded = false; p.invuln = Math.max(p.invuln, 0.25);
+      if (!this.hit(W, 1, p.cx, 'stomp')) AudioSys.play('land');
+      return;
+    }
+    if (!safe) p.hurt(W, 1, this.cx);
+  }
+  hit(W, dmg, srcX, kind) {
+    if (this.dead || this.state === 'hidden' || this.state === 'intro' || this.state === 'dying') return false;
+    if (this.state === 'quiz') { floatText(W, this.cx, this.y - 8, 'BLINDADO: RESPONDE LA CONSULTA', PAL.cyan); AudioSys.play('ui_back'); return false; }
+    const sp = this.spec;
+    if (this.state !== 'stun' && !this.guardOpen(W, kind)) {
+      if ((this.guardMsgT || 0) < W.t) { this.guardMsgT = W.t + 1.2; floatText(W, this.cx, this.y - 8, sp.guard.text, PAL.gray); AudioSys.play('ui_back'); if (sp.guard.tip) W.tip('g_' + sp.id, gKeys(sp.guard.tip)); }
+      return false;
+    }
+    let m = 1;
+    if (this.state === 'stun') m *= 2;
+    if (sp.weak && sp.weak.test(W, this, kind)) { m *= 2; if ((this.weakMsgT || 0) < W.t) { this.weakMsgT = W.t + 1.5; floatText(W, this.cx, this.y - 18, sp.weak.text, PAL.gold); } }
+    this.damage(W, dmg * m);
+    return true;
+  }
+  damage(W, n) {
+    const before = this.hp / this.maxHp;
+    this.hp = Math.max(0, this.hp - n); this.flashT = 0.12;
+    AudioSys.play('hit'); W.particles.burst(this.cx, this.cy, 8 + n * 3, { col: [PAL.white, this.spec.col], max: 90 });
+    floatText(W, this.cx + rand(-8, 8), this.y - 4, '-' + n, n > 1 ? PAL.gold : PAL.white);
+    if (this.hp <= 0) { this.defeat(W); return; }
+    const after = this.hp / this.maxHp;
+    for (let i = this.quizzesDone; i < this.thresholds.length; i++) {
+      if (before > this.thresholds[i] && after <= this.thresholds[i]) { this.phase = i + 1; this.startQuiz(W); break; }
+    }
+  }
+  stun(W, t, text) {
+    this.state = 'stun'; this.stunT = t; this.move = null; this.beam = null; this.marks = null; this.ghost = null;
+    floatText(W, this.cx, this.y - 16, text || '¡VULNERABLE!', PAL.gold);
+    W.particles.burst(this.cx, this.y, 16, { col: [PAL.gold, PAL.white], max: 80 });
+  }
+  interrupt(W) { if (this.state !== 'fight' && this.state !== 'stun') return; this.freezeT = 3.2; this.interrupted = W.t; floatText(W, this.cx, this.y - 8, 'INTERRUMPIDO', PAL.red); }
+  // ---------- consulta ----------
+  startQuiz(W) {
+    const sp = this.spec;
+    this.state = 'quiz'; this.move = null; this.beam = null; this.marks = null; this.ghost = null; this.vx = 0;
+    for (const p of W.projectiles) if (p.owner !== 'player') p.dead = true;
+    const pool = sp.qs.map((q, i) => i).filter(i => !this.usedQ.includes(i));
+    const qi = pick(pool.length ? pool : sp.qs.map((q, i) => i)); this.usedQ.push(qi);
+    const q = sp.qs[qi];
+    const order = q.o.map((t, i) => i).sort(() => Math.random() - 0.5);
+    const A = this.A, xs = [0.18, 0.42, 0.66];
+    if (sp.mode !== 'hover') { this.x = clamp(this.x, A.x0 + (A.x1 - A.x0) * 0.8, A.x1 - this.w - 4); }
+    const orbs = order.map((oi, k) => W.addEntity(new AnswerOrb(W, A.x0 + (A.x1 - A.x0) * xs[k], A.floor - 14, q.o[oi], oi === 0, k)));
+    W.v.gQuiz = { q, qi, orbs, wrong: 0, t0: W.t };
+    AudioSys.play('echo');
+    W.bark(guide(), (sp.quizLine || 'El guardián se blinda y hace una consulta.') + ' Dispara (o pulsa [' + Input.label('interact') + ']) al orbe correcto.', 'CURIOUS', 5);
+  }
+  answer(W, orb) {
+    const Q = W.v.gQuiz;
+    if (orb.ok) {
+      for (const o of Q.orbs) if (!o.dead) { o.dead = true; W.particles.burst(o.cx, o.cy, o === orb ? 24 : 8, { col: o === orb ? [PAL.green, PAL.white] : [PAL.gray], max: 90 }); }
+      W.sfx('correct');
+      LearningModel.record({ concept: this.spec.concept, chId: 'guard_' + this.spec.id + '_' + Q.qi, correct: true, firstTry: Q.wrong === 0, hints: 0, time: W.t - Q.t0, expected: 12, conf: null, difficulty: 2, transfer: true, prompt: 'Consulta de ' + this.spec.name + ': ' + Q.q.q });
+      if (Q.wrong === 0) Progression.addXP(12, 'consulta');
+      W.bark(guide(), '✓ ' + Q.q.why, 'HAPPY', 5);
+      W.v.gQuiz = null; this.quizzesDone++;
+      this.stun(W, 5, '¡CORRECTO! VULNERABLE');
+    } else {
+      Q.wrong++; orb.dead = true;
+      W.sfx('wrong'); W.shake(2, 0.2);
+      W.particles.burst(orb.cx, orb.cy, 16, { col: [PAL.red, PAL.amber], max: 90 });
+      for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + (i - 1) * 0.6; gShot(W, this, orb.cx, orb.cy, Math.cos(a) * 70, Math.sin(a) * 70, { life: 1.6 }); }
+      const why = (Q.q.no && Q.q.no[orb.text]) || ('«' + orb.text + '» no es la respuesta.');
+      W.bark(guide(), '✗ ' + why, 'WORRIED', 5);
+    }
+  }
+  defeat(W) {
+    if (this.state === 'dying') return;
+    this.state = 'dying'; this.dieT = 2; this.move = null; this.beam = null; this.marks = null;
+    if (W.v.gQuiz) { for (const o of W.v.gQuiz.orbs) o.dead = true; W.v.gQuiz = null; }
+    const self = this;
+    W.run(function* () { yield* G_defeat(W, self); }, 'guardian_defeat');
+  }
+  // ---------- dibujo ----------
+  render(g, W) {
+    if (this.state === 'hidden' || this.alpha <= 0) return;
+    const sp = this.spec;
+    // avisos en el suelo (lluvia) y rayo
+    if (this.marks) for (const x of this.marks) { g.fillStyle = Math.floor(W.t * 10) % 2 ? PAL.red : PAL.amber; g.fillRect(Math.round(x) - 5, this.A.floor - 2, 10, 2); Font.draw(g, '!', Math.round(x), this.A.floor - 14, PAL.red, { align: 'center' }); }
+    if (this.beam) {
+      const b = this.beam;
+      if (!b.on) { g.globalAlpha = 0.35 + 0.3 * Math.sin(W.t * 30); g.fillStyle = sp.col; g.fillRect(this.A.x0, Math.round(b.y), this.A.x1 - this.A.x0, 1); g.globalAlpha = 1; }
+      else { g.fillStyle = sp.col; g.fillRect(this.A.x0, Math.round(b.y) - 3, this.A.x1 - this.A.x0, 6); g.fillStyle = PAL.white; g.fillRect(this.A.x0, Math.round(b.y) - 1, this.A.x1 - this.A.x0, 2); }
+    }
+    if (this.ghost) { g.globalAlpha = 0.3 + 0.2 * Math.sin(W.t * 20); g.drawImage(silhouetteCache(this.frame(W)), Math.round(this.ghost.x + this.w / 2 - this.frame(W).width / 2), Math.round(this.ghost.y + this.h - this.frame(W).height)); g.globalAlpha = 1; }
+    g.globalAlpha = this.alpha * (this.state === 'dying' ? clamp(this.dieT / 2, 0, 1) : 1);
+    const c = this.frame(W);
+    const sq = this.squash > 0 ? 1 : 0;
+    const x = Math.round(this.x + this.w / 2 - c.width / 2 + (this.state === 'dying' ? rand(-2, 2) : 0)), y = Math.round(this.y + this.h - c.height + sq);
+    g.drawImage(this.flashT > 0 ? silhouetteCache(c) : c, x, y);
+    if (sp.draw) sp.draw(g, W, this, x, y);
+    g.globalAlpha = 1;
+    // estados
+    if (this.state === 'quiz') { this.ring(g, W, PAL.cyan); W.label('?', this.cx, this.y - 14 + Math.round(Math.sin(W.t * 5) * 2), PAL.cyan, { prio: 5, back: false, shadow: '#000000' }); }
+    else if (this.state === 'stun') { for (let i = 0; i < 3; i++) { const a = W.t * 5 + i * 2.1; Font.draw(g, '★', this.cx + Math.cos(a) * 12, this.y - 8 + Math.sin(a) * 3, PAL.gold, { align: 'center' }); } }
+    else if (this.state === 'fight' && !this.guardOpen(W, null)) this.ring(g, W, sp.guard.col || PAL.gray);
+    if (this.freezeT > 0) { g.fillStyle = 'rgba(255,89,100,0.28)'; g.fillRect(this.x - 2, this.y - 2, this.w + 4, this.h + 4); Font.draw(g, 'IRQ', this.cx, this.y - 14, PAL.red, { align: 'center' }); }
+    if (this.move && (this.move.tele > 0) && Math.floor(W.t * 12) % 2) W.label('!', this.cx, this.y - 14, PAL.red, { prio: 5, back: false, shadow: '#000000' });
+  }
+  ring(g, W, col) {
+    const r = Math.max(this.w, this.h) * 0.62 + 2;
+    g.fillStyle = col; g.globalAlpha = 0.55 + 0.25 * Math.sin(W.t * 8);
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 3) {
+      const a2 = a + Math.PI / 3, n = 8;
+      for (let k = 0; k < n; k++) { const f = k / n; g.fillRect(Math.round(this.cx + lerp(Math.cos(a), Math.cos(a2), f) * r), Math.round(this.cy + lerp(Math.sin(a), Math.sin(a2), f) * r), 2, 2); }
+    }
+    g.globalAlpha = 1;
+  }
+  frame(W) {
+    const fr = Sprites.guardians[this.spec.id];
+    const k = this.state === 'stun' ? fr.length - 1 : Math.floor(this.t * (this.spec.fps || 5)) % Math.max(1, fr.length - 1);
+    const f = fr[k];
+    return this.face > 0 && !this.spec.noFlip ? f.l : f.r;
+  }
+}
+Guardian.prototype.glow = function () { return this.state === 'hidden' ? null : [this.cx, this.cy, Math.max(this.w, this.h) * 0.8, this.state === 'stun' ? '#FFD166' : this.spec.col, this.state === 'dying' ? 0.6 : 0.3]; };
+
+// Segundo cuerpo (ABRAZO MORTAL): recibe golpes y los reenvía al guardián
+class GuardianPart extends Ent {
+  constructor(B, o) { super(0, 0, {}, o.w, o.h); this.B = B; this.o = o; this.kind = 'guardianpart'; this.enemy = true; this.big = true; this.layer = 2; this.alwaysUpdate = true; this.x = B.x - 90; this.y = B.y; this.flashT = 0; this.vx = 0; this.vy = 0; }
+  update(W, dt) {
+    this.t += dt; this.flashT = Math.max(0, this.flashT - dt);
+    const B = this.B;
+    if (B.dead || B.state === 'hidden') return;
+    if (B.spec.twinUpdate) B.spec.twinUpdate(W, B, this, dt);
+    if (B.state === 'fight' && B.freezeT <= 0) this.contact(W);
+  }
+  contact(W) { Guardian.prototype.contact.call(this, W); }
+  hit(W, dmg, srcX, kind) { return this.B.spec.twinHit(W, this.B, this, dmg, kind); }
+  interrupt(W) { this.B.interrupt(W); }
+  get state() { return this.B.state; }
+  render(g, W) {
+    const B = this.B; if (B.state === 'hidden' || B.alpha <= 0) return;
+    const fr = Sprites.guardians[B.spec.id + '_b'], f = fr[Math.floor(this.t * 5) % fr.length], c = W.player.cx > this.cx ? f.l : f.r;
+    g.globalAlpha = B.alpha * (B.state === 'dying' ? clamp(B.dieT / 2, 0, 1) : 1);
+    const x = Math.round(this.x + this.w / 2 - c.width / 2), y = Math.round(this.y + this.h - c.height);
+    g.drawImage(this.flashT > 0 ? silhouetteCache(c) : c, x, y);
+    g.globalAlpha = 1;
+    if (B.state === 'stun') Font.draw(g, '★', this.cx, this.y - 8, PAL.gold, { align: 'center' });
+    if (B.freezeT > 0) { g.fillStyle = 'rgba(255,89,100,0.28)'; g.fillRect(this.x - 2, this.y - 2, this.w + 4, this.h + 4); }
+  }
+}
+GuardianPart.prototype.glow = function () { return this.B.state === 'hidden' ? null : [this.cx, this.cy, 22, this.B.spec.col2 || this.B.spec.col, 0.3]; };
+
+// ---------------------------------------------------------------- guiones de presentación y victoria ----
+function* G_intro(W, B) {
+  const sp = B.spec, G = B.G;
+  W.lock();
+  W.player.vx = 0;
+  if (G.gate) { W.closeDoor('gate'); W.sfx('door', '[la compuerta se cierra]'); }
+  W.projectiles.length = 0;
+  AudioSys.playMusic('guardian');
+  yield* W.camTo(B.cx, B.cy - 10, 0.7);
+  W.glitch(0.5, 'corrupt'); W.shake(3, 0.5); W.sfx('boss', '[aparece ' + sp.name + ']');
+  W.particles.burst(B.cx, B.cy, 40, { col: [sp.col, PAL.white], kind: 'bit', max: 120, lmax: 1.2 });
+  // (durante el guion el mundo está en calma: la aparición se anima aquí)
+  for (let t = 0; t < 0.9; t += 1 / 60) { B.alpha = t / 0.9; if (Math.random() < 0.3) W.particles.spawn({ x: B.x + rand(0, B.w), y: B.y + rand(0, B.h), vy: -30, col: sp.col, life: 0.5, kind: 'glitch' }); yield; }
+  B.alpha = 1;
+  W.v.gCard = { t: 0, name: sp.name, sub: 'Concepto: ' + CONCEPTS[sp.concept] + ' · ' + sp.title, col: sp.col };
+  const seen = W.has('G_seen_' + sp.id);
+  if (!seen) {
+    W.flag('G_seen_' + sp.id);
+    yield 1.4;
+    yield* W.say(sp.intro(W), { id: 'G_intro_' + sp.id });
+  } else yield 1.6;
+  W.camFollow();
+  B.state = 'fight'; B.alpha = 1; B.idleT = 0.8;
+  W.unlock();
+  if (!W.has('tip_guardians')) W.tip('guardians', 'GUARDIÁN: esquiva sus ataques (el «!» avisa), dispárale con [' + Input.label('attack') + '] o salta encima. Al perder vida hará una CONSULTA: dispara al orbe con la respuesta correcta.');
+  else if (sp.weak && sp.weak.tip) W.tip('gw_' + sp.id, gKeys(sp.weak.tip));
+}
+function* G_defeat(W, B) {
+  const sp = B.spec, G = B.G;
+  W.lock();
+  for (const p of W.projectiles) if (p.owner !== 'player') p.dead = true;
+  for (const e of W.entities) if (e.gMinion && !e.dead) { e.dead = true; W.particles.burst(e.cx, e.cy, 10, { col: [PAL.green, PAL.white], kind: 'bit' }); }
+  W.sfx('explosion', '[el guardián se desintegra]'); W.shake(6, 1.6); W.flash(sp.col, 0.4);
+  W.cam.lockT = { x: B.cx, y: B.cy };
+  for (let t = 0; t < 2; t += 1 / 60) {
+    B.dieT = 2 - t;
+    if (Math.random() < 0.45) { const bx = B.x + rand(0, B.w), by = B.y + rand(0, B.h); W.particles.burst(bx, by, 7, { col: [sp.col, PAL.white, PAL.gold], max: 110 }); if (Math.random() < 0.2) AudioSys.play('hit'); }
+    yield;
+  }
+  W.flash('#FFFFFF', 0.5); W.sfx('victory');
+  W.particles.burst(B.cx, B.cy, 70, { col: [sp.col, PAL.gold, PAL.white, PAL.green], kind: 'bit', max: 160, lmax: 1.6 });
+  B.dead = true; if (B.twin) B.twin.dead = true;
+  W.v.guardianDone = true;
+  W.flag(Guardians.flag(sp));
+  PROG.stats.guardians = (PROG.stats.guardians || 0) + 1;
+  Codex.unlock('g_' + sp.id, true);
+  if (G.gate) W.openDoor('gate');
+  AudioSys.playMusic(W.def.musicFn ? W.def.musicFn() : W.def.music);
+  yield 0.8;
+  W.camFollow();
+  Progression.addXP(60, 'guardián');
+  if (sp.outro) yield* W.say(sp.outro(W), { id: 'G_outro_' + sp.id });
+  if (sp.chip && !Chips.owned(sp.chip)) {
+    Chips.grant(sp.chip);
+    const c = CHIPS[sp.chip];
+    yield* W.read('CHIP DE FIRMWARE: ' + c.n, c.d + '\n\nConcepto: ' + c.why + '\n\nCoste: ' + c.kb + ' KB de memoria de firmware. Se equipa en PAUSA → FIRMWARE. La capacidad crece con cada guardián vencido (ahora ' + Chips.cap() + ' KB).', { style: 'memory' });
+  }
+  Achievements.check();
+  Game.save();
+  W.unlock();
+}
+
+
+// ==================== 26_guardian_specs.js ====================
+// =============================================================================
+// LOS NUEVE GUARDIANES: aspecto (píxel a píxel), ataques, mecánica de su concepto, consultas y arenas.
+// Consultas: o[0] es la respuesta correcta (se barajan al mostrarse). «no» explica cada error.
+// =============================================================================
+Sprites.buildGuardians = function () {
+  const G = {};
+  // tres fotogramas: 0-1 animación, 2 aturdido. Dibujados mirando a la IZQUIERDA.
+  const mk = (w, h, fn) => [0, 1, 2].map(f => { const p = new PixelArt(w, h); fn(p, f); p.outline(); const r = p.toCanvas(); return { r, l: flipCanvas(r) }; });
+  const dizzy = (p, x, y, c) => { p.px(x, y, c); p.px(x + 2, y, c); p.px(x + 1, y + 1, c); p.px(x, y + 2, c); p.px(x + 2, y + 2, c); };
+  // BOOTLOOP: monitor con patas y barra de carga eterna
+  G.bootloop = mk(34, 27, (p, f) => {
+    const B = '#6F7C86', L = '#A9B6BE', D = '#3A444C', S = '#06202A', C = '#45E5FF';
+    const k = f === 1 ? 1 : 0;
+    [[5, 0], [11, 1], [21, 1], [27, 0]].forEach(([x, o]) => p.rect(x, 22, 2, 4 - ((o + k) % 2), D));
+    p.rect(3, 5, 28, 17, B); p.rect(3, 5, 28, 2, L); p.rect(3, 20, 28, 2, D); p.rect(2, 9, 1, 6, D); p.rect(31, 9, 1, 6, D);
+    p.rect(6, 8, 22, 10, S);
+    if (f === 2) { dizzy(p, 10, 10, C); dizzy(p, 20, 10, C); }
+    else { p.rect(9, 10, 4, 3, C); p.rect(20, 10, 4, 3, C); p.px(9 + k, 11, '#FFFFFF'); p.px(20 + k, 11, '#FFFFFF'); p.rect(8, 9, 5, 1, D); p.rect(20, 9, 5, 1, D); }
+    p.rect(9, 15, 16, 1, '#123C4A'); p.rect(9, 15, 5 + k * 6, 1, '#71FF9A');
+    p.rect(16, 1, 1, 4, L); p.px(16, 0, f === 1 ? '#FF5964' : '#71FF9A');
+    p.rect(26, 7, 2, 1, '#FF5964');
+  });
+  // SOBRETENSIÓN: condensador con brazos de rayos
+  G.surge = mk(38, 34, (p, f) => {
+    const B = '#3A4DA8', H = '#6E8BFF', T = '#C8D0D8', Y = '#FFD166', D = '#23306E';
+    p.rect(11, 6, 16, 22, B); p.rect(13, 7, 2, 20, H); p.rect(11, 3, 16, 4, T); p.rect(12, 2, 14, 1, T);
+    p.rect(11, 12, 16, 3, '#8C8FA8'); for (let x = 13; x < 26; x += 4) p.px(x, 13, '#E8F4F7');
+    p.rect(14, 28, 2, 5, T); p.rect(22, 28, 2, 5, T); p.rect(11, 26, 16, 2, D);
+    if (f === 2) { dizzy(p, 14, 17, '#8C8FA8'); dizzy(p, 21, 17, '#8C8FA8'); }
+    else { p.rect(14, 18, 3, 2, Y); p.rect(21, 18, 3, 2, Y); p.px(14, 17, D); p.px(15, 17, D); p.px(22, 17, D); p.px(23, 17, D); p.rect(16, 22, 6, 1, D); }
+    if (f !== 2) {
+      const z = f ? [[8, 10], [6, 12], [8, 14], [5, 17], [7, 19], [3, 22]] : [[8, 12], [5, 14], [7, 16], [4, 19], [6, 21], [2, 24]];
+      z.forEach(([x, y]) => { p.rect(x, y, 3, 1, Y); p.rect(37 - x - 2, y, 3, 1, Y); });
+    }
+  });
+  // RELOJ DESBOCADO: esfera con engranajes (las agujas se dibujan aparte)
+  G.overclock = mk(36, 36, (p, f) => {
+    const R = '#5A3A20', F = '#F5E3B8', A = '#F1B45C', M = '#8C8FA8';
+    p.circle(8, 4, 3, A); p.circle(28, 4, 3, A); p.rect(15, 1, 6, 2, R);
+    p.circle(18, 19, 15, R); p.circle(18, 19, 13, F);
+    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; p.px(Math.round(18 + Math.cos(a) * 11), Math.round(19 + Math.sin(a) * 11), R); }
+    p.circle(3, 27, 3, M); p.circle(33, 27, 3, M); p.px(3, 23 + f, '#E8F4F7'); p.px(33, 31 - f, '#E8F4F7');
+    if (f === 2) { dizzy(p, 12, 13, R); dizzy(p, 22, 13, R); }
+    else { p.rect(12, 13, 3, 3, '#1A1A22'); p.rect(22, 13, 3, 3, '#1A1A22'); p.rect(11, 11, 4, 1, R); p.rect(22, 11, 4, 1, R); }
+    p.rect(15, 26, 7, 1, R);
+    p.rect(12, 33, 3, 3, R); p.rect(22, 33, 3, 3, R);
+  });
+  // DESBORDAMIENTO: gólem calculadora (el marcador de 8 bits se dibuja aparte)
+  G.overflow = mk(42, 38, (p, f) => {
+    const B = '#8A4B2A', L = '#A0612F', D = '#5A3A20', K = '#1A0A06', A = '#F1B45C', O = '#D98A3D';
+    p.rect(10, 31, 8, 7, D); p.rect(24, 31, 8, 7, D);
+    p.rect(6, 8, 30, 24, B); p.rect(6, 8, 30, 2, L); p.rect(11, 1, 20, 8, L); p.rect(11, 1, 20, 1, '#C07A3F');
+    if (f === 2) { dizzy(p, 15, 3, A); dizzy(p, 24, 3, A); }
+    else { p.rect(15, 4, 4, 2, A); p.rect(24, 4, 4, 2, A); p.rect(14, 3, 5, 1, D); p.rect(24, 3, 5, 1, D); }
+    p.rect(9, 11, 24, 8, K);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) p.rect(11 + c * 5, 21 + r * 3, 4, 2, (r + c + f) % 3 ? O : A);
+    const a = f === 1 ? 1 : 0;
+    p.rect(0, 12 + a, 6, 11, D); p.rect(36, 12 - a, 6, 11, D); p.rect(0, 22 + a, 7, 6, L); p.rect(35, 22 - a, 7, 6, L);
+  });
+  // THRASHING: núcleo de memoria rodeado de páginas
+  G.thrash = mk(40, 34, (p, f) => {
+    const C = '#2A2438', V = ['#AA7DFF', '#C7A8FF', '#6E4FB0'], PK = '#FF9ED8';
+    const pages = f === 1 ? [[2, 4], [30, 2], [0, 22], [31, 24], [14, 0], [16, 28]] : [[4, 2], [31, 5], [1, 20], [30, 21], [12, 1], [19, 27]];
+    pages.forEach(([x, y], i) => { p.rect(x, y, 8, 6, V[i % 3]); p.rect(x + 1, y + 2, 5, 1, '#3E2670'); p.rect(x + 1, y + 4, 4, 1, '#3E2670'); });
+    p.rect(11, 9, 18, 16, C); for (let i = 0; i < 4; i++) { p.rect(8, 11 + i * 4, 3, 1, '#8C8FA8'); p.rect(29, 11 + i * 4, 3, 1, '#8C8FA8'); }
+    p.rect(12, 10, 16, 2, '#3E3656');
+    if (f === 2) { dizzy(p, 14, 15, PK); dizzy(p, 23, 15, PK); }
+    else { p.rect(14, 15, 4, 3, PK); p.rect(22, 15, 4, 3, PK); p.px(15, 16, '#FFFFFF'); p.px(23, 16, '#FFFFFF'); }
+    p.rect(16, 21, 8, 1, PK);
+  });
+  // COLISIÓN DE BUS: camión blindado con los tres carriles pintados
+  G.busjam = mk(46, 26, (p, f) => {
+    const A = '#D98A3D', K = '#1A1A22', G2 = '#6F7C86', W2 = '#E8F4F7';
+    p.rect(6, 3, 38, 16, '#F1B45C'); p.rect(6, 3, 38, 2, '#FFE9A8');
+    BUS_COL.forEach((c, i) => p.rect(14, 7 + i * 4, 28, 2, c));
+    p.rect(1, 5, 11, 14, A); p.rect(3, 7, 6, 5, '#0E3B4A');
+    if (f === 2) dizzy(p, 4, 8, W2); else { p.rect(3, 8, 3, 3, W2); p.px(4 - (f ? 0 : 1) + 1, 9, K); }
+    p.rect(0, 16, 12, 3, G2); for (let x = 1; x < 11; x += 2) p.px(x, 17, K);
+    [[11, 21], [36, 21]].forEach(([x, y]) => { p.circle(x, y, 4, K); p.px(x + (f ? 1 : -1), y, G2); p.px(x, y + (f ? -1 : 1), G2); });
+  });
+  // TORMENTA IRQ: nube de peticiones con dispositivos
+  G.irqstorm = mk(48, 32, (p, f) => {
+    const C = '#3E3656', L = '#5A4E7A', R = '#FF5964', Y = '#FFD166', W2 = '#E8F4F7';
+    p.circle(12, 14, 9, C); p.circle(24, 10, 11, C); p.circle(36, 14, 9, C); p.rect(6, 14, 36, 9, C);
+    p.circle(22, 6, 5, L); p.circle(33, 10, 4, L);
+    p.rect(9, 17, 11, 4, W2); for (let x = 10; x < 20; x += 2) p.px(x, 18, C);
+    p.rect(31, 16, 5, 6, W2); p.px(33, 17, C);
+    if (f === 2) { dizzy(p, 19, 11, '#8C8FA8'); dizzy(p, 27, 11, '#8C8FA8'); }
+    else { p.rect(19, 11, 4, 3, R); p.rect(27, 11, 4, 3, R); p.rect(18, 10, 5, 1, '#12061E'); p.rect(27, 10, 5, 1, '#12061E'); }
+    if (f !== 2) { const bx = f ? 16 : 30; [[0, 23], [-2, 25], [1, 27], [-1, 29]].forEach(([dx, y]) => p.rect(bx + dx, y, 3, 2, Y)); }
+  });
+  // ABRAZO MORTAL: dos candados encadenados (A violeta, B ámbar)
+  const lock = (body, hi) => mk(24, 28, (p, f) => {
+    const G2 = '#8C8FA8', W2 = '#E8F4F7';
+    p.rect(6, 0, 12, 2, G2); p.rect(5, 1, 3, 9, G2); p.rect(16, 1, 3, 9, G2);
+    p.rect(2, 9, 20, 16, body); p.rect(2, 9, 20, 2, hi); p.rect(3, 12, 2, 11, hi);
+    if (f === 2) { dizzy(p, 6, 13, W2); dizzy(p, 15, 13, W2); }
+    else { p.rect(6, 13, 3, 3, W2); p.rect(15, 13, 3, 3, W2); p.px(6 + f, 14, '#050709'); p.px(15 + f, 14, '#050709'); }
+    p.rect(11, 18, 2, 4, '#12061E'); p.px(10, 18, '#12061E'); p.px(13, 18, '#12061E');
+    p.rect(5, 25, 4, 3 - f, '#3A444C'); p.rect(15, 25, 4, 2 + f, '#3A444C');
+  });
+  G.deadlock = lock('#6E4FB0', '#AA7DFF');
+  G.deadlock_b = lock('#B8662A', '#F1B45C');
+  // PÁNICO DEL KERNEL: pantalla azul fantasmal
+  G.panic = mk(34, 38, (p, f) => {
+    const B = '#2A4DB8', D = '#1A2F7A', W2 = '#E8F4F7';
+    p.rect(2, 2, 30, 23, D); p.rect(3, 3, 28, 21, B);
+    if (f === 2) { dizzy(p, 8, 6, W2); dizzy(p, 13, 6, W2); }
+    else { p.rect(8, 6, 2, 2, W2); p.rect(8, 10, 2, 2, W2); p.rect(12, 5, 1, 1, W2); p.rect(11, 6, 1, 6, W2); p.rect(12, 12, 1, 1, W2); }
+    for (let i = 0; i < 4; i++) p.rect(17, 6 + i * 3, 10 - (i * 3 + f) % 5, 1, '#9FB8FF');
+    p.rect(6, 17, 21, 1, '#9FB8FF'); p.rect(6, 20, 14, 1, '#9FB8FF');
+    for (let x = 4; x < 31; x++) { const h = 3 + Math.round(3 + 2 * Math.sin(x * 0.7 + f * 2)); p.rect(x, 25, 1, h, (x + f) % 3 ? B : D); }
+    p.rect(14, 0, 6, 2, D);
+  });
+  Sprites.guardians = G;
+};
+
+// ---------------------------------------------------------------- mecánicas especiales ----
+// Toma de tierra para la SOBRETENSIÓN (interactuar junto a ella)
+class GroundNode extends Ent {
+  constructor(cx, cy, p) { super(cx, cy, p, 14, 18); this.kind = 'gndnode'; this.layer = 1; this.interactive = true; }
+  get prompt() { const B = Game.world && Game.world.v.guardian; return B && B.over > 0 ? 'Desviar la sobretensión (TOMA DE TIERRA)' : 'Toma de tierra (GND)'; }
+  interact(W) {
+    const B = W.v.guardian;
+    if (!B || !(B.over > 0)) { W.bark(guide(), 'La toma de tierra: si hay una sobretensión, se puede desviar aquí.', 'CURIOUS', 3); return; }
+    W.run(function* () {
+      const i = yield* W.prompt('¡SOBRECARGA! ¿Adónde desvías la sobretensión?', ['A TIERRA (GND)', 'A LA CPU', 'A LA RAM'], { col: PAL.gold, tag: 'CIRCUIT LINK', sub: 'Un exceso de voltaje debe ir a donde no dañe nada.' });
+      if (i < 0 || !(B.over > 0)) return;
+      if (i === 0) {
+        B.over = 0; B.charge = 0; W.sfx('link'); W.spawnFx('beam', B.cx, B.cy, { x2: W.ent('gnd').cx, y2: W.ent('gnd').y, col: PAL.gold, life: 0.8 });
+        LearningModel.record({ concept: 'motherboard', chId: 'guard_surge_gnd', correct: true, firstTry: !B.gndFail, hints: 0, time: 5, expected: 10, conf: null, difficulty: 2, transfer: true, prompt: 'Desviar sobretensión a tierra' });
+        B.stun(W, 4.5, '¡DESCARGADA A TIERRA!');
+        W.bark(guide(), 'La corriente sobrante se va a tierra, lejos de los componentes. Por eso los equipos llevan toma de tierra.', 'HAPPY', 5);
+      } else {
+        B.gndFail = true; W.sfx('wrong'); W.player.hurt(W, 1, W.player.cx + 1);
+        W.bark(guide(), i === 1 ? '¡A la CPU no! Funciona a ~1 V: una sobretensión la quemaría.' : '¡A la RAM tampoco! Es un componente delicado: la sobretensión la dañaría.', 'AFRAID', 5);
+      }
+    }, 'gnd');
+  }
+  render(g, W) {
+    const B = W.v.guardian, hot = B && B.over > 0;
+    const x = this.x, y = this.y;
+    g.fillStyle = '#3A444C'; g.fillRect(x + 5, y + 6, 4, 12); g.fillStyle = '#6F7C86'; g.fillRect(x + 1, y + 2, 12, 5);
+    g.fillStyle = hot ? (Math.floor(W.t * 8) % 2 ? PAL.gold : '#6A5020') : '#71FF9A'; g.fillRect(x + 3, y + 3, 8, 3);
+    for (let i = 0; i < 3; i++) { g.fillStyle = '#A9B6BE'; g.fillRect(x + 7 - (3 - i) * 2, y + 18 - i * 2 + 2, (3 - i) * 4, 1); }
+    W.label('GND', this.cx, y - 12, hot ? PAL.gold : PAL.green, { prio: 2 });
+  }
+}
+GroundNode.prototype.glow = function (W) { const B = W.v.guardian; return [this.cx, this.y + 4, 14, B && B.over > 0 ? '#FFD166' : '#71FF9A', 0.35]; };
+ENTITY_TYPES.gndnode = GroundNode;
+
+const BUSJAM_PK = [{ t: '0x3F20', k: 1 }, { t: 'DATO: 77', k: 0 }, { t: 'LEER', k: 2 }, { t: '0x7C00', k: 1 }, { t: 'DATO: "A"', k: 0 }, { t: 'ESCRIBIR', k: 2 }, { t: 'IRQ 3', k: 2 }, { t: '0x0010', k: 1 }];
+const gSay = (W, nexo, sys) => (guide() === 'SYS' ? ['SYS', sys] : [guide(), nexo, 'WORRIED']);
+
+// ---------------------------------------------------------------- fichas de los guardianes ----
+const GUARDIAN_SPECS = {
+  bootloop: {
+    id: 'bootloop', name: 'BOOTLOOP', title: 'arranque en bucle', concept: 'hardwareBasics', col: '#45E5FF', shot: '#71FF9A', shotKind: 'bit',
+    hp: 16, w: 30, h: 24, mode: 'ground', walk: 30, fan: 3, volleys: 2,
+    moves: [['hop', 'spread'], ['hop', 'spread', 'charge'], ['charge', 'hop', 'spread', 'hop']],
+    tip: 'Esquiva sus ondas saltando y dispárale con [{A}]. También puedes saltarle encima.',
+    qs: [
+      { q: '¿Qué etapa va justo después de PROCESO?', o: ['MEMORIA', 'ENTRADA', 'SALIDA'], why: 'Tras procesar, el resultado se guarda en MEMORIA; sólo después sale.', no: { ENTRADA: 'La ENTRADA es el principio: el dato ya entró.', SALIDA: 'Antes de mostrarlo hay que guardarlo en MEMORIA.' } },
+      { q: '¿Cuál de estos es un dispositivo de ENTRADA?', o: ['TECLADO', 'MONITOR', 'ALTAVOZ'], why: 'El teclado lleva datos hacia el sistema: es ENTRADA.', no: { MONITOR: 'El monitor muestra resultados: es SALIDA.', ALTAVOZ: 'El altavoz emite sonido: es SALIDA.' } },
+      { q: '¿Cuál de estos es SOFTWARE?', o: ['UN DRIVER', 'LA CPU', 'LA RAM'], why: 'Un driver son instrucciones: software. CPU y RAM son hardware.', no: { 'LA CPU': 'La CPU es un chip físico: hardware.', 'LA RAM': 'La RAM es un módulo físico: hardware.' } },
+      { q: '¿Qué hace el firmware (BIOS/UEFI) al encender?', o: ['ARRANCAR', 'IMPRIMIR', 'ENFRIAR'], why: 'Comprueba el hardware (POST) y arranca el sistema operativo.', no: { IMPRIMIR: 'Imprimir es cosa de un programa y un driver.', ENFRIAR: 'Enfriar es trabajo de ventiladores y disipadores.' } }
+    ],
+    intro: W => [['', 'Un monitor con patas bloquea la sala. En su pantalla, una barra de carga que nunca termina.'], ['NEXO', '¡Un BOOTLOOP! Un arranque que se repite sin fin porque falta una etapa del flujo.', 'WORRIED'], ['BYTE', 'Entonces le enseñaremos el orden correcto.', 'determined']],
+    outro: W => [['NEXO', 'Arranque completado. Entrada, proceso, memoria, salida... y sin bucles.', 'HAPPY'], ['BYTE', '¿Eso era un chip? Lo guardo.', 'happy']],
+    chip: 'post'
+  },
+  surge: {
+    id: 'surge', name: 'SOBRETENSIÓN', title: 'voltaje sin regular', concept: 'motherboard', col: '#FFD166', col2: '#6E8BFF', shot: '#FFD166', rainKind: 'bolt', waveKind: 'spark',
+    hp: 20, w: 30, h: 30, mode: 'hover', alt: 100,
+    moves: [['wave', 'rain'], ['wave', 'rain', 'orbit'], ['orbit', 'rain', 'wave', 'slam']],
+    tip: 'Cuando se SOBRECARGUE, corre a la toma de tierra (GND) y desvía la corriente con [{E}].',
+    guard: { open: (W, B) => !(B.over > 0), text: 'SOBRECARGA: DESVÍALA A TIERRA', col: PAL.gold, tip: 'Sobrecargado no se le puede dañar: ve a la toma GND y pulsa [{E}] para desviar la sobretensión.' },
+    setup(W, B) { B.charge = 5; B.over = 0; const A = B.A; W.spawnEnt('gndnode', A.x0 + 15 * TS, A.floor - 18, { id: 'gnd', px: A.x0 + 15 * TS + 1, py: A.floor - 18 }); },
+    update(W, B, dt) {
+      if (B.state !== 'fight') return;
+      if (B.over > 0) {
+        B.over -= dt;
+        if (Math.random() < 0.4) W.particles.spawn({ x: B.x + rand(0, B.w), y: B.y + rand(0, B.h), vx: rand(-40, 40), vy: rand(-40, 40), col: PAL.gold, life: 0.3 });
+        if (B.over <= 0) {
+          // descarga total por el suelo: sólo se salva quien esté en una plataforma
+          W.flash(PAL.gold, 0.3); W.shake(5, 0.5); W.sfx('explosion', '[descarga eléctrica]');
+          for (let x = B.A.x0 + 8; x < B.A.x1; x += 22) W.particles.burst(x, B.A.floor - 3, 3, { col: [PAL.gold, PAL.white], max: 70, dir: -Math.PI / 2, spread: 0.8 });
+          const p = W.player; if (p.grounded && p.y + p.h >= B.A.floor - 1) p.hurt(W, 1, p.cx + 1, true);
+          B.charge = 0;
+        }
+        return;
+      }
+      B.charge += dt;
+      if (B.charge > 11 && !B.move) { B.over = 6.5; B.move = null; W.sfx('alarm', '[sobrecarga]'); W.bark(guide(), '¡Se está sobrecargando! Desvía la corriente en la toma de tierra (GND) antes de que descargue.', 'AFRAID', 4); }
+    },
+    draw(g, W, B, x, y) { if (B.over > 0) { Font.draw(g, 'SOBRECARGA ' + Math.ceil(B.over), B.cx, B.y - 26, Math.floor(W.t * 6) % 2 ? PAL.gold : PAL.white, { align: 'center' }); } },
+    qs: [
+      { q: '¿Qué convierte los 12 V de la fuente en el voltaje de la CPU?', o: ['VRM', 'GPU', 'SSD'], why: 'El VRM, junto al socket, entrega a la CPU un voltaje bajo y estable.', no: { GPU: 'La GPU calcula gráficos; no regula voltaje.', SSD: 'El SSD almacena datos; no regula voltaje.' } },
+      { q: '¿Dónde se instala la memoria RAM?', o: ['RANURA DIMM', 'PCIe x16', 'PUERTO SATA'], why: 'Los módulos de RAM van en las ranuras DIMM, junto a la CPU.', no: { 'PCIe x16': 'PCIe x16 es para tarjetas como la GPU.', 'PUERTO SATA': 'SATA conecta discos, no memoria.' } },
+      { q: '¿Qué conecta USB, SATA y red con la CPU?', o: ['CHIPSET', 'ALU', 'VRM'], why: 'El chipset es el intercambiador de la placa: conecta periféricos con la CPU.', no: { ALU: 'La ALU está dentro de la CPU y calcula.', VRM: 'El VRM alimenta; no conecta periféricos.' } },
+      { q: '¿Por dónde se conecta normalmente una GPU?', o: ['PCIe x16', 'DIMM', 'USB'], why: 'La GPU usa una ranura PCIe x16: 16 carriles en paralelo.', no: { DIMM: 'DIMM es para la RAM.', USB: 'USB es demasiado lento para una GPU interna.' } }
+    ],
+    intro: W => [['', 'Los condensadores de la plaza chisporrotean. Algo absorbe toda la energía de la ciudad.'], ['NEXO', '¡Una SOBRETENSIÓN! Demasiado voltaje sin regular: puede quemar cualquier componente.', 'AFRAID'], ['BYTE', 'Si no se puede regular... habrá que llevarla a tierra.', 'determined']],
+    outro: W => [['NEXO', 'Voltaje estable. El VRM ya puede hacer su trabajo.', 'HAPPY'], ['BYTE', 'Nota mental: la corriente sobrante, siempre a tierra.', 'happy']],
+    chip: 'vrm'
+  },
+  overclock: {
+    id: 'overclock', name: 'RELOJ DESBOCADO', title: 'ciclo sin control', concept: 'fetchDecodeExecute', col: '#F1B45C', shot: '#FFD166', noFlip: true,
+    hp: 22, w: 32, h: 32, mode: 'hover', alt: 96, fan: 3, volleys: 2,
+    spots: [[6, 6], [15, 7], [24, 6], [9, 3], [21, 3]],
+    moves: [['warp', 'spread'], ['warp', 'spread', 'beam'], ['warp', 'beam', 'spread', 'rain']],
+    tip: 'Se teletransporta en cada «tic»: su fantasma avisa dónde aparecerá. FETCH DASH a través de él hace daño doble.',
+    weak: { kind: 'dash', test: (W, B, k) => k === 'dash', text: '¡CICLO INTERCEPTADO!', tip: 'Debilidad: atraviésalo con FETCH DASH [{Q}] (daño doble). Desde una plataforma llegas mejor.' },
+    draw(g, W, B, x, y) {
+      const cx = x + 18, cy = y + 19, a = W.t * (3 + B.phase * 2), b = W.t * (0.4 + B.phase * 0.3);
+      for (let i = 2; i < 10; i++) { g.fillStyle = '#1A1A22'; g.fillRect(Math.round(cx + Math.cos(a) * i), Math.round(cy + Math.sin(a) * i), 1, 1); }
+      for (let i = 2; i < 7; i++) { g.fillStyle = '#A02B38'; g.fillRect(Math.round(cx + Math.cos(b) * i), Math.round(cy + Math.sin(b) * i), 2, 2); }
+    },
+    qs: [
+      { q: '¿Qué etapa del ciclo sigue a DECODE?', o: ['EXECUTE', 'FETCH', 'WRITE BACK'], why: 'Primero se decodifica qué hacer; luego se EJECUTA.', no: { FETCH: 'FETCH va antes: trae la instrucción.', 'WRITE BACK': 'WRITE BACK es el último paso: guardar el resultado.' } },
+      { q: '¿Qué registro guarda la dirección de la siguiente instrucción?', o: ['PC', 'IR', 'ALU'], why: 'El Contador de Programa (PC) es el marcapáginas del programa.', no: { IR: 'El IR guarda la instrucción actual, no la dirección de la siguiente.', ALU: 'La ALU calcula; no es un registro de direcciones.' } },
+      { q: 'En FETCH, ¿qué se trae de la memoria?', o: ['LA INSTRUCCIÓN', 'EL RESULTADO', 'EL RELOJ'], why: 'FETCH trae la instrucción a la que apunta el PC.', no: { 'EL RESULTADO': 'El resultado aún no existe: se calcula después.', 'EL RELOJ': 'El reloj es una señal, no algo que se lea de memoria.' } },
+      { q: '¿Qué marca el ritmo de todos los pasos de la CPU?', o: ['EL RELOJ', 'LA RAM', 'EL SSD'], why: 'La señal de reloj sincroniza cada paso: un flanco, un paso.', no: { 'LA RAM': 'La RAM guarda datos; no marca el ritmo.', 'EL SSD': 'El SSD almacena; no sincroniza la CPU.' } }
+    ],
+    intro: W => [['', 'Un reloj gigante gira sus agujas a una velocidad imposible. En cada tic cambia de sitio.'], ['NEXO', '¡RELOJ DESBOCADO! Alguien forzó la frecuencia: los pasos del ciclo se atropellan.', 'WORRIED'], ['BYTE', 'FETCH, DECODE, EXECUTE, WRITE BACK. Uno detrás de otro. Vamos a recordárselo.', 'determined']],
+    outro: W => [['NEXO', 'El ciclo vuelve a su ritmo. Un paso por tic.', 'HAPPY'], ['BYTE', 'Y con esto, mis disparos también irán en cadena.', 'happy']],
+    chip: 'pipeline'
+  },
+  overflow: {
+    id: 'overflow', name: 'DESBORDAMIENTO', title: 'suma sin espacio', concept: 'alu', col: '#FF8A3D', shot: '#FFD166', shotKind: 'bit',
+    hp: 24, w: 36, h: 34, mode: 'ground', walk: 22, fan: 4, volleys: 2, minion: 'bitcorrupt',
+    moves: [['hop', 'spread'], ['hop', 'spread', 'charge'], ['hop', 'charge', 'spread', 'summon']],
+    tip: 'Cada ataque suma a su contador de 8 bits: al pasar de 255 se desborda y queda aturdido. ALU PULSE le hace daño doble.',
+    weak: { test: (W, B, k) => k === 'pulse', text: '¡XOR! BITS RESTAURADOS', tip: 'Debilidad: ALU PULSE [{Q}] cerca de él hace daño doble.' },
+    setup(W, B) { B.cnt = 140; },
+    onMove(W, B, n) {
+      B.cnt += randi(35, 80);
+      if (B.cnt > 255) {
+        B.cnt -= 256; B.move = null;
+        W.sfx('glitch'); W.shake(3, 0.3);
+        W.bark(guide(), '¡OVERFLOW! El contador pasó de 255 y dio la vuelta: con 8 bits no cabe más. Aprovecha.', 'HAPPY', 4);
+        B.stun(W, 3.5, 'OVERFLOW: ACARREO PERDIDO');
+      }
+    },
+    draw(g, W, B, x, y) {
+      const v = B.cnt | 0;
+      for (let i = 0; i < 8; i++) { const bit = (v >> (7 - i)) & 1; g.fillStyle = bit ? '#71FF9A' : '#2A3A30'; g.fillRect(x + 11 + i * 3, y + 13, 2, 4); }
+      W.label(v + ' / 255', B.cx, B.y - 26, v > 200 ? PAL.red : PAL.amber, { prio: 3 });
+    },
+    qs: [
+      { q: '1 + 1 en binario es...', o: ['10', '2', '11'], why: 'En base 2 no existe el «2»: 1 + 1 = 10 (se escribe 0 y se lleva 1).', no: { 2: 'El dígito 2 no existe en binario.', 11: '11 en binario es 3.' } },
+      { q: '¿Qué compuerta da 1 sólo si AMBAS entradas son 1?', o: ['AND', 'OR', 'XOR'], why: 'AND: las dos a la vez.', no: { OR: 'OR da 1 si al menos una es 1.', XOR: 'XOR da 1 si son distintas.' } },
+      { q: '0101 + 0011 =', o: ['1000', '0110', '1111'], why: '5 + 3 = 8, y 8 en binario es 1000.', no: { '0110': '0110 es 6.', 1111: '1111 es 15.' } },
+      { q: 'El bit de SUMA de un semisumador es una compuerta...', o: ['XOR', 'AND', 'NOT'], why: 'La suma de un bit es XOR; el acarreo, AND.', no: { AND: 'AND da el acarreo, no la suma.', NOT: 'NOT sólo invierte un bit.' } }
+    ],
+    intro: W => [['', 'Una calculadora gigante suma sin parar. Su marcador de 8 bits parpadea en rojo.'], ['NEXO', '¡DESBORDAMIENTO! Suma más de lo que cabe en 8 bits... y el resultado se da la vuelta.', 'WORRIED'], ['BYTE', '255 más uno es... cero. Si lo hacemos desbordar, se quedará en blanco.', 'thinking']],
+    outro: W => [['NEXO', 'Cuentas cuadradas. Y ningún acarreo perdido.', 'HAPPY'], ['BYTE', 'La ALU no es magia: son compuertas bien puestas.', 'happy']],
+    chip: 'alu'
+  },
+  thrash: {
+    id: 'thrash', name: 'THRASHING', title: 'memoria que no para de moverse', concept: 'cache', col: '#C79BFF', shot: '#C7A8FF', shotKind: 'page', rainKind: 'page',
+    hp: 24, w: 34, h: 30, mode: 'hover', alt: 90, fan: 3, volleys: 2,
+    spots: [[6, 8], [21, 8], [14, 5], [5, 1], [22, 1]],
+    moves: [['warp', 'spread'], ['warp', 'rain', 'spread'], ['warp', 'rain', 'orbit', 'spread']],
+    tip: 'Con CACHE BOOST activo le haces daño doble. Cuando baja al «SSD» es más lento: aprovecha.',
+    weak: { test: (W) => W.player.boostT > 0, text: '¡CACHE HIT!', tip: 'Debilidad: con CACHE BOOST [{Q}] activo le haces daño doble.' },
+    update(W, B, dt) { const up = B.A.floor - (B.y + B.h); B.tier = up > 100 ? 'CACHÉ' : up > 40 ? 'RAM' : 'SSD'; },
+    draw(g, W, B, x, y) { if (B.tier) W.label('EN ' + B.tier, B.cx, B.y + B.h + 2, B.tier === 'SSD' ? PAL.green : B.tier === 'RAM' ? PAL.amber : PAL.violet, { prio: 3 }); },
+    qs: [
+      { q: '¿Cuál es la memoria más rápida?', o: ['REGISTROS', 'RAM', 'SSD'], why: 'Los registros están dentro del núcleo: la memoria más rápida y más pequeña.', no: { RAM: 'La RAM es rápida, pero mucho más lenta que registros y caché.', SSD: 'El SSD es el nivel más lento de la jerarquía.' } },
+      { q: '¿Qué se pierde al cortar la energía?', o: ['LA RAM', 'EL SSD', 'EL HDD'], why: 'La RAM es volátil: sin energía, se borra.', no: { 'EL SSD': 'El SSD es no volátil: conserva los datos.', 'EL HDD': 'El disco duro conserva los datos sin energía.' } },
+      { q: '¿Para qué sirve la caché?', o: ['EVITAR ESPERAS', 'SER PERMANENTE', 'ENFRIAR'], why: 'Guarda cerca lo que se usa a menudo para que la CPU no espere a la RAM.', no: { 'SER PERMANENTE': 'La caché es volátil y pequeña: no es almacenamiento.', ENFRIAR: 'La caché no tiene nada que ver con la temperatura.' } },
+      { q: 'Si el dato NO está en la caché, ocurre un...', o: ['CACHE MISS', 'CACHE HIT', 'OVERFLOW'], why: 'Un fallo de caché obliga a buscar el dato en un nivel más lento.', no: { 'CACHE HIT': 'HIT es cuando SÍ está.', OVERFLOW: 'Overflow es un desbordamiento aritmético.' } }
+    ],
+    intro: W => [['', 'Las páginas de memoria se arremolinan: entran y salen de la caché sin parar.'], ['SYS', 'ALERTA: THRASHING. EL SISTEMA PASA MÁS TIEMPO MOVIENDO PÁGINAS QUE TRABAJANDO.'], ['BYTE', 'Sin NEXO... Bien. Lo que se usa a menudo, cerca. Lo demás, lejos.', 'determined']],
+    outro: W => [['SYS', 'MEMORIA ESTABILIZADA. ACCESOS: NORMALES.'], ['BYTE', '...Te habría gustado ver esto, NEXO.', 'sad']],
+    chip: 'prefetch'
+  },
+  busjam: {
+    id: 'busjam', name: 'COLISIÓN DE BUS', title: 'cada cosa por cualquier carril', concept: 'buses', col: '#F1B45C', shot: '#45E5FF', minion: 'bitcorrupt',
+    hp: 22, w: 42, h: 22, mode: 'ground', walk: 40, fan: 3, volleys: 2,
+    moves: [['charge', 'hop'], ['charge', 'spread', 'hop'], ['charge', 'summon', 'charge', 'spread']],
+    tip: 'Su carga lo protege: acércate y usa BUS BRIDGE [{Q}] para enrutar el paquete por el bus correcto.',
+    guard: { open: (W, B) => B.openT > 0, text: 'CARGA SIN ENRUTAR: USA BUS BRIDGE', col: PAL.amber, tip: 'Protegido por su carga: acércate y usa BUS BRIDGE [{Q}] para enviar el paquete por el bus correcto.' },
+    setup(W, B) { B.pk = pick(BUSJAM_PK); B.openT = 0; B.reroute = function* (W2) { yield* busjamReroute(W2, B); }; },
+    update(W, B, dt) { B.openT = Math.max(0, B.openT - dt); },
+    draw(g, W, B, x, y) {
+      if (B.openT > 0) { W.label('ENRUTADO ' + Math.ceil(B.openT), B.cx, B.y - 26, PAL.green, { prio: 3 }); return; }
+      W.label('CARGA: ' + B.pk.t, B.cx, B.y - 26, PAL.amber, { prio: 3 });
+    },
+    qs: [
+      { q: '¿Por qué bus viaja una DIRECCIÓN de memoria?', o: ['DIRECCIONES', 'DATOS', 'CONTROL'], why: 'El bus de direcciones indica DÓNDE leer o escribir.', no: { DATOS: 'El bus de datos lleva el valor (el QUÉ).', CONTROL: 'El bus de control lleva órdenes (el CUÁNDO y el CÓMO).' } },
+      { q: 'La orden «LEER» viaja por el bus de...', o: ['CONTROL', 'DATOS', 'DIRECCIONES'], why: 'Las órdenes (leer, escribir, reloj, IRQ) van por el bus de control.', no: { DATOS: 'Datos lleva valores, no órdenes.', DIRECCIONES: 'Direcciones lleva posiciones, no órdenes.' } },
+      { q: 'El valor 42 que se escribe en la RAM viaja por...', o: ['DATOS', 'CONTROL', 'DIRECCIONES'], why: 'El valor es un dato: bus de datos.', no: { CONTROL: 'Control dice CUÁNDO escribir, no el valor.', DIRECCIONES: 'Direcciones dice DÓNDE, no el valor.' } },
+      { q: 'Más carriles en paralelo significa más...', o: ['ANCHO DE BANDA', 'LATENCIA', 'CALOR'], why: 'Más carriles, más datos por segundo: más ancho de banda.', no: { LATENCIA: 'La latencia de cada dato no baja por añadir carriles.', CALOR: 'No es el objetivo de añadir carriles.' } }
+    ],
+    intro: W => [['', 'Un camión blindado recorre la autopista sin respetar ningún carril.'], gSay(W, '¡COLISIÓN DE BUS! Mezcla datos, direcciones y órdenes en el mismo carril.', 'ALERTA: CONTENCIÓN DE BUS. SEÑALES MEZCLADAS EN TODOS LOS CARRILES.'), ['BYTE', 'Cada cosa por su bus. BUS BRIDGE va a poner orden.', 'determined']],
+    outro: W => [['SYS', 'BUSES DESPEJADOS. DATOS, DIRECCIONES Y CONTROL, CADA UNO EN SU CARRIL.'], ['BYTE', 'Y yo me llevo un bus de 64 bits. Dos disparos a la vez.', 'happy']],
+    chip: 'bus64'
+  },
+  irqstorm: {
+    id: 'irqstorm', name: 'TORMENTA IRQ', title: 'todos a la vez', concept: 'interrupts', col: '#FF5964', shot: '#FF5964', minion: 'bitcorrupt',
+    hp: 20, w: 44, h: 28, mode: 'hover', alt: 104, fan: 4, volleys: 2,
+    moves: [['spread', 'rain'], ['spread', 'rain', 'summon'], ['orbit', 'rain', 'spread', 'summon']],
+    tip: 'Sólo es vulnerable interrumpido: acércate y usa INTERRUPT SHIELD [{Q}]; luego atácalo.',
+    guard: { open: (W, B) => B.freezeT > 0, text: 'SATURADA: INTERRÚMPELA', col: PAL.red, tip: 'La tormenta sólo es vulnerable interrumpida: acércate y usa INTERRUPT SHIELD [{Q}], luego atácala.' },
+    qs: [
+      { q: 'Si llegan varias IRQ a la vez, ¿cuál se atiende primero?', o: ['LA MÁS PRIORITARIA', 'LA MÁS VIEJA', 'LA MÁS LARGA'], why: 'El controlador de interrupciones atiende primero la de mayor prioridad.', no: { 'LA MÁS VIEJA': 'El orden de llegada no manda: manda la prioridad.', 'LA MÁS LARGA': 'La duración no decide el orden.' } },
+      { q: 'Antes de atender una interrupción, la CPU...', o: ['GUARDA SU ESTADO', 'SE APAGA', 'BORRA LA RAM'], why: 'Guardar, atender, restaurar, continuar: sin perder lo que estaba haciendo.', no: { 'SE APAGA': 'Apagarse perdería todo el trabajo.', 'BORRA LA RAM': 'Borrar la RAM destruiría el programa en curso.' } },
+      { q: 'Preguntar sin parar a un dispositivo si tiene algo es...', o: ['POLLING', 'DMA', 'CACHÉ'], why: 'Eso es polling (sondeo): gasta CPU preguntando. La interrupción lo evita.', no: { DMA: 'DMA copia datos sin la CPU.', 'CACHÉ': 'La caché es memoria rápida, no una forma de preguntar.' } },
+      { q: '¿Qué copia datos a la RAM sin ocupar la CPU?', o: ['DMA', 'ISR', 'ALU'], why: 'El DMA transfiere bloques directamente y avisa al terminar.', no: { ISR: 'La ISR es la rutina que atiende una interrupción.', ALU: 'La ALU calcula; no transfiere bloques.' } }
+    ],
+    intro: W => [['', 'Una nube de peticiones cubre la estación. Teclado, ratón y disco gritan a la vez.'], gSay(W, '¡TORMENTA IRQ! Tantas interrupciones que la CPU no puede atender ninguna.', 'ALERTA: TORMENTA DE INTERRUPCIONES.'), ['BYTE', 'Pues la interrumpo yo a ella.', 'determined']],
+    outro: W => [[guide(), 'Prioridades en orden. Ninguna petición perdida.', 'HAPPY'], ['BYTE', 'Y un WATCHDOG: si algo se cuelga, alguien lo reinicia.', 'happy']],
+    chip: 'watchdog'
+  },
+  deadlock: {
+    id: 'deadlock', name: 'ABRAZO MORTAL', title: 'espera circular', concept: 'parallelism', col: '#AA7DFF', col2: '#F1B45C', shot: '#AA7DFF',
+    hp: 18, w: 22, h: 26, mode: 'ground', walk: 34, fan: 3, volleys: 1,
+    moves: [['hop', 'spread'], ['hop', 'spread', 'charge'], ['charge', 'hop', 'spread']],
+    tip: 'Cada candado espera al otro: golpéalos casi a la vez (PARALLEL CLONE [{Q}] u onda ALU PULSE).',
+    twin: { w: 22, h: 26 },
+    setup(W, B) { B.lastHitA = -9; B.lastHitB = -9; },
+    twinUpdate(W, B, T, dt) {
+      // el segundo candado se mueve en espejo respecto al centro de la arena
+      const mid = (B.A.x0 + B.A.x1) / 2, tx = clamp(2 * mid - B.cx - T.w / 2, B.A.x0 + 4, B.A.x1 - T.w - 4);
+      if (B.state === 'fight' || B.state === 'stun' || B.state === 'quiz') {
+        if (B.freezeT <= 0 && B.state === 'fight') T.vx = clamp((tx - T.x) * 3, -200, 200); else T.vx = 0;
+        if (B.move && B.move.n === 'hop' && B.move.air && T.grounded) { T.vy = -300; }
+        T.vy = Math.min((T.vy || 0) + 950 * dt, 360); W.move(T, dt);
+        if (T.x < B.A.x0 + 2) T.x = B.A.x0 + 2; if (T.x + T.w > B.A.x1 - 2) T.x = B.A.x1 - 2 - T.w;
+      }
+    },
+    twinHit(W, B, part, dmg, kind) {
+      if (B.state === 'stun') { B._fwd = true; const r = B.hit(W, dmg, 0, kind); B._fwd = false; part.flashT = 0.12; return r; }
+      if (B.state !== 'fight') { B._fwd = true; const r = B.hit(W, dmg, 0, kind); B._fwd = false; return r; }
+      const isA = part === B; if (isA) B.lastHitA = W.t; else B.lastHitB = W.t;
+      part.flashT = 0.12;
+      if (Math.abs(B.lastHitA - B.lastHitB) < 0.8) {
+        B.lastHitA = B.lastHitB = -9;
+        floatText(W, (B.cx + B.twin.cx) / 2, B.y - 18, '¡ESPERA CIRCULAR ROTA!', PAL.green);
+        B._fwd = true; B.hit(W, 2 * dmg, 0, kind); B._fwd = false; return true;
+      }
+      if ((B.waitMsgT || 0) < W.t) { B.waitMsgT = W.t + 1; floatText(W, part.cx, part.y - 8, 'ESPERANDO A SU PAR...', PAL.gray); AudioSys.play('ui_back'); W.tip('g_deadlock', gKeys('Cada candado espera al otro: golpéalos casi a la vez (PARALLEL CLONE [{Q}] u onda ALU PULSE).')); }
+      return false;
+    },
+    draw(g, W, B, x, y) {
+      const T = B.twin; if (!T) return;
+      const n = Math.max(2, Math.round(dist(B.cx, B.cy, T.cx, T.cy) / 5));
+      for (let i = 1; i < n; i++) { const f = i / n; g.fillStyle = i % 2 ? '#8C8FA8' : '#5A5C70'; g.fillRect(Math.round(lerp(B.cx, T.cx, f)) - 1, Math.round(lerp(B.cy, T.cy, f) + Math.sin(f * Math.PI) * 10) - 1, 3, 2); }
+      W.label('R1', B.cx, B.y - 26, PAL.violet, { prio: 2 }); W.label('R2', T.cx, T.y - 26, PAL.amber, { prio: 2 });
+    },
+    qs: [
+      { q: 'Dos procesos se esperan mutuamente para siempre: es un...', o: ['DEADLOCK', 'OVERFLOW', 'CACHE MISS'], why: 'Interbloqueo: espera circular de recursos. Nadie cede y nadie avanza.', no: { OVERFLOW: 'Overflow es un desbordamiento aritmético.', 'CACHE MISS': 'Un cache miss es un fallo de caché.' } },
+      { q: 'Con un 50% de trabajo secuencial, más núcleos nunca pasan de...', o: ['2×', '4×', '10×'], why: 'Ley de Amdahl: 1 / 0,5 = 2×. La parte secuencial pone el techo.', no: { '4×': 'Eso sería con un 25% secuencial.', '10×': 'Con la mitad secuencial es imposible.' } },
+      { q: 'El componente que limita todo el sistema es el...', o: ['CUELLO DE BOTELLA', 'VENTILADOR', 'CHIPSET'], why: 'Mejorar otra cosa no sirve: hay que atacar el cuello de botella.', no: { VENTILADOR: 'Puede serlo si hay calor, pero el término es cuello de botella.', CHIPSET: 'No es el limitante por definición.' } },
+      { q: 'Si la CPU se calienta demasiado y baja su frecuencia, es...', o: ['THROTTLING', 'OVERCLOCK', 'POLLING'], why: 'Throttling: se frena sola para protegerse del calor.', no: { OVERCLOCK: 'Overclock es subir la frecuencia, lo contrario.', POLLING: 'Polling es sondear dispositivos.' } }
+    ],
+    intro: W => [['', 'Dos candados enormes avanzan encadenados. Cada uno sujeta lo que el otro necesita.'], gSay(W, '¡ABRAZO MORTAL! Un interbloqueo: ninguno suelta su recurso hasta que el otro suelte el suyo.', 'ALERTA: INTERBLOQUEO DETECTADO.'), ['BYTE', 'Hay que romper la espera circular. Los dos a la vez.', 'determined']],
+    outro: W => [[guide(), 'Recursos liberados. Los dos procesos avanzan.', 'HAPPY'], ['BYTE', 'Un OVERCLOCK... con su precio. Nada es gratis, ¿eh?', 'thinking']],
+    chip: 'overclock'
+  },
+  panic: {
+    id: 'panic', name: 'PÁNICO DEL KERNEL', title: 'error sin salida', concept: 'io', col: '#6E8BFF', shot: '#9FB8FF', minion: 'nullpointer',
+    hp: 24, w: 30, h: 34, mode: 'hover', alt: 96, fan: 3, volleys: 2,
+    spots: [[6, 6], [15, 7], [24, 6], [8, 3], [21, 3]],
+    moves: [['warp', 'spread'], ['warp', 'beam', 'summon'], ['warp', 'beam', 'spread', 'orbit']],
+    tip: 'Se vuelve una dirección nula e invisible. REGISTER RECALL [{Q}] fija su dirección: visible y con daño doble.',
+    guard: { open: (W, B) => B.vis || B.pinT > 0, text: 'DIRECCIÓN NULA', col: PAL.violet, tip: 'Invisible no se le puede dañar: usa REGISTER RECALL [{Q}] para fijar su dirección, o espera a que reaparezca.' },
+    weak: { test: (W, B) => B.pinT > 0, text: '¡DIRECCIÓN FIJADA!', tip: 'Debilidad: REGISTER RECALL [{Q}] fija su dirección (visible y daño doble).' },
+    setup(W, B) { B.vis = true; B.visT = 3.5; B.pinT = 0; B.pinnable = true; B.pin = function (W2) { this.pinT = 5; this.vis = true; floatText(W2, this.cx, this.y - 10, 'DIRECCIÓN FIJADA EN R7', PAL.white); }; },
+    update(W, B, dt) {
+      B.pinT = Math.max(0, B.pinT - dt);
+      if (B.state !== 'fight') { B.vis = true; return; }
+      B.visT -= dt;
+      if (B.pinT > 0) B.vis = true;
+      else if (B.visT <= 0) { B.vis = !B.vis; B.visT = B.vis ? 3.5 : 2.2; W.particles.burst(B.cx, B.cy, 10, { col: [PAL.violet, '#9FB8FF'], kind: 'glitch' }); }
+    },
+    draw(g, W, B, x, y) { if (B.pinT > 0) W.label('R7 → ' + Math.ceil(B.pinT), B.cx, B.y - 26, PAL.white, { prio: 3 }); },
+    qs: [
+      { q: '¿Qué parte del sistema operativo reparte la CPU entre procesos?', o: ['EL PLANIFICADOR', 'LA BIOS', 'EL VRM'], why: 'El planificador del kernel decide qué proceso usa la CPU y cuándo.', no: { 'LA BIOS': 'La BIOS arranca el equipo; luego cede el control al SO.', 'EL VRM': 'El VRM regula voltaje.' } },
+      { q: 'Un puntero que no apunta a ninguna dirección válida es un...', o: ['PUNTERO NULO', 'BUS DE DATOS', 'REGISTRO PC'], why: 'Un puntero nulo: seguirlo provoca un error.', no: { 'BUS DE DATOS': 'El bus de datos transporta valores.', 'REGISTRO PC': 'El PC apunta a la siguiente instrucción (válida).' } },
+      { q: 'Al cambiar de proceso, el kernel guarda y restaura...', o: ['EL CONTEXTO', 'EL SSD', 'LA PANTALLA'], why: 'El contexto: registros y estado del proceso, para seguir donde lo dejó.', no: { 'EL SSD': 'No hace falta tocar el SSD para cambiar de proceso.', 'LA PANTALLA': 'La pantalla no es el estado del proceso.' } },
+      { q: '¿Quién gestiona procesos, memoria y dispositivos?', o: ['EL KERNEL', 'LA GPU', 'EL CHIPSET'], why: 'El kernel es el núcleo del sistema operativo: arbitra todo el hardware.', no: { 'LA GPU': 'La GPU calcula gráficos.', 'EL CHIPSET': 'El chipset conecta periféricos, pero no los gestiona.' } }
+    ],
+    intro: W => [['', 'La pantalla del núcleo se vuelve azul. Un rostro triste parpadea entre errores.'], gSay(W, '¡PÁNICO DEL KERNEL! Un error tan grave que el sistema no sabe cómo seguir.', 'KERNEL PANIC: ESTADO IRRECUPERABLE.'), ['BYTE', 'Sé cómo se siente. Pero esta vez tenemos un punto de restauración.', 'determined']],
+    outro: W => [[guide(), 'El kernel se recupera. Todos los procesos, a salvo.', 'HAPPY'], ['BYTE', 'RAID 1: una copia espejo. Por si acaso.', 'happy']],
+    chip: 'raid'
+  }
+};
+// La visibilidad del PÁNICO se respeta al dibujar (invisible: sólo un rastro de «0x0000»)
+const _gRender = Guardian.prototype.render;
+Guardian.prototype.render = function (g, W) {
+  if (this.spec.id === 'panic' && this.state === 'fight' && !this.vis && this.pinT <= 0) { if (Math.random() < 0.15) Font.draw(g, '0x0000', this.cx, this.cy, 'rgba(159,184,255,0.45)', { align: 'center' }); return; }
+  return _gRender.call(this, g, W);
+};
+const _gContact = Guardian.prototype.contact;
+Guardian.prototype.contact = function (W, safe) { if (this.spec && this.spec.id === 'panic' && !this.vis && !(this.pinT > 0)) return; return _gContact.call(this, W, safe); };
+const _gHit = Guardian.prototype.hit;
+Guardian.prototype.hit = function (W, dmg, srcX, kind) { if (this.spec.twinHit && !this._fwd) return this.spec.twinHit(W, this, this, dmg, kind); return _gHit.call(this, W, dmg, srcX, kind); };
+const _gFrame = Guardian.prototype.frame;
+Guardian.prototype.frame = function (W) { if (!Sprites.guardians) Sprites.buildGuardians(); return _gFrame.call(this, W); };
+const _gpRender = GuardianPart.prototype.render;
+GuardianPart.prototype.render = function (g, W) { if (!Sprites.guardians) Sprites.buildGuardians(); return _gpRender.call(this, g, W); };
+
+function* busjamReroute(W, B) {
+  if (B.openT > 0) { W.bark(guide(), 'Su carga ya va por el bus correcto: ¡ataca ahora!', 'HAPPY', 3); return; }
+  const pk = B.pk;
+  const i = yield* W.prompt('BUS BRIDGE — la carga del guardián es «' + pk.t + '». ¿Por qué bus debe viajar?', BUS_NAME.slice(), { col: PAL.amber, tag: 'BUS BRIDGE' });
+  if (i < 0) return;
+  if (i === pk.k) {
+    W.sfx('bridge'); floatText(W, B.cx, B.y - 12, 'ENRUTADO: ' + BUS_NAME[i], PAL.green);
+    LearningModel.record({ concept: 'buses', chId: 'guard_busjam_route', correct: true, firstTry: !B.routeFail, hints: 0, time: 5, expected: 10, conf: null, difficulty: 2, transfer: true, prompt: 'Enrutar la carga del guardián' });
+    B.openT = 7; B.stun(W, 2.5, 'CARGA ENRUTADA');
+    B.pk = pick(BUSJAM_PK.filter(q => q !== pk));
+  } else {
+    B.routeFail = true; W.sfx('wrong'); floatText(W, B.cx, B.y - 12, 'BUS INCORRECTO', PAL.red);
+    W.bark(guide(), '«' + pk.t + '» ' + ROUTE_EXPLAIN[pk.k].replace(/\*/g, ''), 'WORRIED', 5);
+    W.player.hurt(W, 1, B.cx);
+  }
+}
+
+// ---------------------------------------------------------------- arenas ----
+// Añade al final del mapa una sala de 30×13 con compuerta, checkpoint, plataformas y la salida.
+function addArena(def, o) {
+  const m = def.map, h = m.length, w0 = Math.max(...m.map(r => r.length));
+  const F = o.floor || 16, legendE = def.legend && def.legend.E;
+  for (let y = 0; y < h; y++) { m[y] = m[y].padEnd(w0, '.'); if (!legendE) m[y] = m[y].replace('E', '.'); }
+  // compuerta: se talla en el muro final o se añade una columna de muro
+  const lastSolid = [1, 2, 3, 4, 5].every(k => m[F - k][w0 - 1] === '#');
+  let gx = w0 - 1;
+  if (!lastSolid) { for (let y = 0; y < h; y++) m[y] += y >= F - 5 && y < F ? '.' : '#'; gx = w0; }
+  for (let k = 1; k <= 5; k++) m[F - k] = m[F - k].slice(0, gx) + 'Γ' + m[F - k].slice(gx + 1);
+  const x0 = m[0].length, W2 = 30;
+  for (let y = 0; y < h; y++) {
+    let row;
+    if (y <= F - 14 || y >= F) row = '#'.repeat(W2 + 1);
+    else {
+      const r = new Array(W2).fill('.');
+      if (y === F - 3) { for (let x = 3; x <= 6; x++) r[x] = '='; for (let x = 23; x <= 26; x++) r[x] = '='; }
+      if (y === F - 6) for (let x = 11; x <= 18; x++) r[x] = '=';
+      if (y === F - 1) { r[1] = 'C'; r[27] = 'E'; }
+      row = r.join('') + '#';
+    }
+    m[y] += row;
+  }
+  def.legend = def.legend || {};
+  def.legend['Γ'] = { type: 'door', id: 'gate', gate: true, color: '#FF5F6A', icon: '◆', openWhen: (def.exit && def.exit.needs) || null, lockedText: (def.exit && def.exit.lockedText) || 'ACCESO BLOQUEADO: estabiliza la región antes de enfrentarte a su guardián.' };
+  def.exit = Object.assign({}, def.exit || {}, { boss: 'G_' + o.id });
+  def.guardian = { id: o.id, gate: true, arena: { x0: x0 * TS, x1: (x0 + W2) * TS, top: (F - 13) * TS, floor: F * TS } };
+}
+addArena(LEVEL0, { id: 'bootloop' });
+addArena(LEVEL1, { id: 'surge' });
+addArena(LEVEL2, { id: 'overclock' });
+addArena(LEVEL3, { id: 'overflow' });
+addArena(LEVEL5, { id: 'busjam' });
+addArena(LEVEL6, { id: 'irqstorm' });
+addArena(LEVEL7, { id: 'deadlock' });
+addArena(LEVEL8, { id: 'panic', floor: 14 });
+// Torre de la Memoria: el guardián aparece en la sala del SSD tras la revelación (sin compuerta)
+LEVEL4.exit = Object.assign({}, LEVEL4.exit, { boss: 'G_thrash' });
+LEVEL4.guardian = { id: 'thrash', gate: false, needs: 'L4_reveal', wakeX: 0, arena: { x0: 1 * TS, x1: 29 * TS, top: 88 * TS, floor: 111 * TS } };
+// pistas: durante el combate manda la del guardián
+for (const L of LEVELS) if (L.guardian && L.hint) { const h0 = L.hint; L.hint = function (W) { return Guardians.hint(W) || (W.v.guardianDone && (!L.exit.needs || W.has(L.exit.needs)) ? { text: 'Guardián vencido: la salida está abierta.' } : h0.call(this, W)); }; }
+
+
+// ==================== 27_extras.js ====================
+// =============================================================================
+// EXTRAS DE JUEGO: chips de FIRMWARE (recompensa de los guardianes, con memoria limitada),
+// enemigos nuevos (MemoryLeak, Troyano, StackOverflow), BESTIARIO educativo y logros nuevos.
+// =============================================================================
+
+// ---------------------------------------------------------------- FIRMWARE ----
+// Como en la RAM real, la memoria de firmware es limitada: hay que elegir qué cargar.
+const CHIPS = {
+  post: { n: 'POST', kb: 2, lv: 0, d: 'Al entrar en un nivel o activar un checkpoint, un escudo absorbe el siguiente golpe.', why: 'El POST (Power-On Self-Test) comprueba el hardware al arrancar para empezar desde un estado seguro.' },
+  vrm: { n: 'VRM ESTABLE', kb: 1, lv: 1, d: 'La energía de las habilidades se regenera un 60 % más rápido.', why: 'Un VRM entrega un voltaje estable: más energía útil y menos desperdicio.' },
+  pipeline: { n: 'PIPELINE', kb: 2, lv: 2, d: 'DEBUG PING dispara un 60 % más rápido.', why: 'La segmentación solapa etapas: más instrucciones terminadas por segundo.' },
+  alu: { n: 'ALU EXTENDIDA', kb: 2, lv: 3, d: 'Los disparos llegan un 40 % más lejos y atraviesan a un enemigo.', why: 'Una ALU más ancha opera con más bits en un solo paso.' },
+  prefetch: { n: 'PREFETCH', kb: 1, lv: 4, d: 'Flechas en el borde de la pantalla señalan fragmentos, letras y ecos cercanos.', why: 'La precarga trae a la caché lo que probablemente vas a necesitar pronto.' },
+  bus64: { n: 'BUS DE 64 BITS', kb: 3, lv: 5, d: 'DEBUG PING dispara dos proyectiles en paralelo.', why: 'Un bus más ancho transporta más bits en cada transferencia.' },
+  watchdog: { n: 'WATCHDOG', kb: 3, lv: 6, d: 'Una vez por nivel, si te quedas sin ♥, te reinicia con 2 ♥.', why: 'Un temporizador watchdog reinicia el sistema cuando deja de responder.' },
+  overclock: { n: 'OVERCLOCK', kb: 1, lv: 7, d: '+15 % de velocidad de carrera, pero la energía se regenera un 30 % más despacio.', why: 'Más frecuencia implica más consumo y calor: nada es gratis.' },
+  raid: { n: 'RAID 1', kb: 3, lv: 8, d: '+1 ♥ máximo.', why: 'RAID 1 guarda una copia espejo: si una falla, queda la otra.' }
+};
+const CHIP_ORDER = ['post', 'vrm', 'pipeline', 'alu', 'prefetch', 'bus64', 'watchdog', 'overclock', 'raid'];
+const Chips = {
+  owned(id) { return !!(PROG && PROG.chips && PROG.chips.includes(id)); },
+  on(id) { return !!(PROG && PROG.equip && PROG.equip.includes(id)); },
+  cap() { return 3 + (PROG && PROG.chips ? PROG.chips.length : 0); },
+  used() { return ((PROG && PROG.equip) || []).reduce((s, k) => s + (CHIPS[k] ? CHIPS[k].kb : 0), 0); },
+  maxHp() { return PROG.maxHp + (this.on('raid') ? 1 : 0); },
+  grant(id) {
+    PROG.chips = PROG.chips || []; PROG.equip = PROG.equip || [];
+    if (!PROG.chips.includes(id)) PROG.chips.push(id);
+    const c = CHIPS[id];
+    if (!PROG.equip.includes(id) && this.used() + c.kb <= this.cap()) { PROG.equip.push(id); UI.toast('CHIP ' + c.n + ' EQUIPADO', PAL.gold); this.apply(id, true); }
+    else UI.toast('CHIP ' + c.n + ' — equípalo en PAUSA → FIRMWARE', PAL.gold);
+    Achievements.check();
+  },
+  toggle(id) {
+    const c = CHIPS[id];
+    if (!this.owned(id)) return false;
+    if (this.on(id)) { PROG.equip = PROG.equip.filter(k => k !== id); this.apply(id, false); return true; }
+    if (this.used() + c.kb > this.cap()) return false;
+    PROG.equip.push(id); this.apply(id, true); return true;
+  },
+  apply(id, on) {
+    const W = Game.world, p = W && W.player;
+    if (!p) return;
+    if (id === 'raid') { if (on) p.hp = Math.min(this.maxHp(), p.hp + 1); else p.hp = Math.min(this.maxHp(), p.hp); }
+    if (id === 'post') p.postShield = on;
+  }
+};
+
+class FirmwareState {
+  constructor() { this.overlay = true; this.sel = 0; this.t = 0; }
+  update(dt) {
+    this.t += dt;
+    const n = CHIP_ORDER.length;
+    if (Input.nav('up')) { this.sel = (this.sel + n - 1) % n; AudioSys.play('ui_move'); }
+    if (Input.nav('down')) { this.sel = (this.sel + 1) % n; AudioSys.play('ui_move'); }
+    const r = this.rects && this.rects.findIndex(b => UI.clicked(b.x, b.y, b.w, b.h));
+    if (r != null && r >= 0) { this.sel = r; this.act(); return; }
+    if (Input.pressed('confirm')) { this.act(); return; }
+    if (Input.pressed('cancel')) { AudioSys.play('ui_back'); Game.pop(); }
+  }
+  act() {
+    const id = CHIP_ORDER[this.sel];
+    if (!Chips.owned(id)) { AudioSys.play('ui_back'); return; }
+    if (Chips.toggle(id)) { AudioSys.play(Chips.on(id) ? 'link' : 'ui_back'); Game.save(); }
+    else { AudioSys.play('wrong'); UI.toast('MEMORIA INSUFICIENTE: quita otro chip primero', PAL.red); }
+  }
+  render(g) {
+    UI.overlayDim(g, 0.86);
+    const x = 16, y = 10, w = 448, h = 250;
+    UI.panel(g, x, y, w, h, { title: 'FIRMWARE — CHIPS', titleCol: PAL.gold });
+    const cap = Chips.cap(), used = Chips.used();
+    Font.draw(g, 'MEMORIA DE FIRMWARE', x + 10, y + 7, PAL.grayL);
+    for (let i = 0; i < 12; i++) { const bx = x + 134 + i * 12; g.fillStyle = i < used ? PAL.gold : i < cap ? '#3A3020' : '#101418'; g.fillRect(bx, y + 11, 10, 6); if (i < cap) { g.fillStyle = i < used ? '#FFE9A8' : '#5A4A20'; g.fillRect(bx, y + 11, 10, 1); } }
+    Font.draw(g, used + ' / ' + cap + ' KB', x + w - 12, y + 7, used >= cap ? PAL.amber : PAL.gold, { align: 'right' });
+    this.rects = [];
+    CHIP_ORDER.forEach((id, i) => {
+      const c = CHIPS[id], own = Chips.owned(id), on = Chips.on(id), foc = i === this.sel, yy = y + 26 + i * 16;
+      if (foc) { g.fillStyle = '#2A2410'; g.fillRect(x + 8, yy, w - 16, 15); g.fillStyle = PAL.gold; g.fillRect(x + 8, yy, 2, 15); }
+      g.fillStyle = own ? (on ? PAL.gold : '#5A4A20') : '#1A1E22'; g.fillRect(x + 16, yy + 3, 9, 9);
+      if (on) Font.draw(g, '✓', x + 20, yy + 1, '#1A1206', { align: 'center' });
+      if (own) {
+        Font.draw(g, c.n, x + 32, yy + 1, foc ? PAL.white : on ? '#FFE9A8' : PAL.grayL);
+        Font.draw(g, c.kb + ' KB', x + 150, yy + 1, PAL.gray);
+        Font.draw(g, UI.fit(c.d, 250), x + 186, yy + 1, on ? PAL.grayL : PAL.gray);
+      } else Font.draw(g, UI.fit('???  lo guarda el guardián de ' + LEVELS[c.lv].name, 400), x + 32, yy + 1, PAL.grayD);
+      this.rects.push({ x: x + 8, y: yy, w: w - 16, h: 15 });
+    });
+    const id = CHIP_ORDER[this.sel], c = CHIPS[id];
+    let ty = y + 26 + CHIP_ORDER.length * 16 + 6;
+    g.fillStyle = PAL.panelB; g.fillRect(x + 10, ty - 3, w - 20, 1);
+    if (Chips.owned(id)) {
+      for (const l of UI.wrap(c.d, w - 24).slice(0, 2)) { Font.draw(g, l, x + 12, ty, PAL.white); ty += 12; }
+      for (const l of UI.wrap('Concepto: ' + c.why, w - 24).slice(0, 2)) { Font.draw(g, l, x + 12, ty, PAL.cyan); ty += 12; }
+    } else UI.textBlock(g, 'Vence al guardián de ' + LEVELS[c.lv].name + ' para obtener este chip. La capacidad crece 1 KB por cada guardián.', x + 12, ty, w - 24, PAL.gray);
+    UI.keyHints(g, [['↑↓', 'Elegir'], [Input.label('interact'), 'Equipar / quitar'], ['ESC', 'Volver']], W / 2, y + h - 14, 'center');
+  }
+}
+
+// ---------------------------------------------------------------- ENEMIGOS NUEVOS ----
+// MemoryLeak: memoria reservada que nunca se libera; crece con el tiempo y al destruirla se reparte.
+class MemoryLeakEnemy extends Enemy {
+  constructor(cx, cy, p) {
+    super(cx, cy, p, 14, 10, p.small ? 1 : (p.hp || 2));
+    this.kind = 'memoryleak'; this.speed = p.small ? 38 : 22; this.growT = 5; this.kb = p.small ? 4 : 8; this.xp = p.small ? 3 : 9; this.stompable = true;
+    if (p.small) { this.w = 10; this.h = 8; this.y += 2; this.x += 2; }
+  }
+  behave(W, dt) {
+    this.walk(W, dt);
+    if (this.p.small) return;
+    this.growT -= dt;
+    if (this.growT <= 0 && this.maxHp < 5) { this.growT = 6; this.maxHp++; this.hp++; this.kb *= 2; floatText(W, this.cx, this.y - 10, '+' + this.kb + ' KB SIN LIBERAR', PAL.magenta); }
+  }
+  die(W) {
+    super.die(W);
+    if (this.p.small) return;
+    for (const d of [-1, 1]) { const e = W.spawnEnt('memoryleak', this.cx, this.y, { small: true, px: this.cx - 5 + d * 4, py: this.y + this.h - 8, dir: d }); if (e) { e.vy = -160; if (this.gMinion) e.gMinion = true; } }
+    floatText(W, this.cx, this.y - 14, 'free() — PERO QUEDAN FRAGMENTOS', PAL.gray);
+  }
+  render(g, W) {
+    const s = 1 + (this.maxHp - 2) * 0.12, cx = this.cx, by = this.y + this.h;
+    const w = Math.round(this.w * s), h = Math.round(this.h * s + Math.sin(this.t * 6) * 1.5);
+    const col = this.flashT > 0 ? '#FFFFFF' : '#C44DB0', dk = '#6A1F5E';
+    g.fillStyle = PAL.ink; g.fillRect(Math.round(cx - w / 2) - 1, Math.round(by - h) - 1, w + 2, h + 1);
+    g.fillStyle = dk; g.fillRect(Math.round(cx - w / 2), Math.round(by - h), w, h);
+    g.fillStyle = col; g.fillRect(Math.round(cx - w / 2) + 1, Math.round(by - h), w - 2, h - 2);
+    g.fillStyle = '#FF9ED8'; g.fillRect(Math.round(cx - w / 2) + 2, Math.round(by - h) + 1, Math.max(1, w / 3), 1);
+    const ex = this.dir > 0 ? 2 : -2;
+    g.fillStyle = '#FFFFFF'; g.fillRect(Math.round(cx - 3 + ex), Math.round(by - h * 0.62), 2, 2); g.fillRect(Math.round(cx + 2 + ex), Math.round(by - h * 0.62), 2, 2);
+    for (let i = 0; i < 2; i++) { const dx = ((this.t * 14 + i * 9) % w) - w / 2; g.fillStyle = dk; g.fillRect(Math.round(cx + dx), Math.round(by) - 1, 2, 2); }
+    if (!this.p.small) W.label(this.kb + ' KB', cx, this.y - 14 - (s - 1) * 10, '#FF9ED8', { prio: 1, back: false, shadow: '#000000' });
+    if (this.freezeT > 0) { g.fillStyle = 'rgba(255,89,100,0.3)'; g.fillRect(Math.round(cx - w / 2) - 1, Math.round(by - h) - 1, w + 2, h + 2); }
+  }
+}
+// Troyano: parece un regalo inofensivo; al acercarse (o al analizarlo con un disparo) revela lo que es.
+class TrojanEnemy extends Enemy {
+  constructor(cx, cy, p) { super(cx, cy, p, 14, 12, p.hp || 3); this.kind = 'trojan'; this.hidden = true; this.harmless = true; this.revealT = 0; this.xp = 14; this.stompable = true; this.jumpT = 1; }
+  reveal(W) {
+    if (!this.hidden) return;
+    this.hidden = false; this.revealT = 0.6; this.harmless = true;
+    W.glitch(0.25, 'corrupt'); AudioSys.play('glitch');
+    floatText(W, this.cx, this.y - 12, '¡TROYANO!', PAL.red);
+    W.particles.burst(this.cx, this.cy, 14, { col: [PAL.red, PAL.gold], kind: 'glitch' });
+    if (!W.has('tip_trojan')) W.tip('trojan', 'TROYANO: malware disfrazado de algo útil. Consejo de seguridad: analiza (dispara) antes de «abrir» regalos de origen desconocido.');
+  }
+  behave(W, dt) {
+    const p = W.player;
+    if (this.hidden) { if (dist(p.cx, p.y, this.cx, this.cy) < 40) this.reveal(W); this.vy = Math.min(this.vy + 900 * dt, 300); this.vx = 0; W.move(this, dt); return; }
+    if (this.revealT > 0) { this.revealT -= dt; if (this.revealT <= 0) this.harmless = false; this.vx = 0; this.vy = Math.min(this.vy + 900 * dt, 300); W.move(this, dt); return; }
+    this.dir = p.cx > this.cx ? 1 : -1;
+    this.jumpT -= dt;
+    if (this.grounded && this.jumpT <= 0) { this.jumpT = rand(0.9, 1.5); this.vy = -210; this.vx = this.dir * 70; }
+    if (this.grounded && this.jumpT > 0.2) this.vx = 0;
+    this.vy = Math.min(this.vy + 900 * dt, 300); this.hitWall = 0; W.move(this, dt);
+    if (this.p.range) { const home = this.home || (this.home = this.x); if (Math.abs(this.x - home) > this.p.range * TS) { this.x = clamp(this.x, home - this.p.range * TS, home + this.p.range * TS); this.vx = 0; } }
+  }
+  hit(W, dmg, srcX, kind) {
+    if (this.hidden) { this.reveal(W); floatText(W, this.cx, this.y - 22, 'ANALIZADO', PAL.cyan); return true; }
+    return super.hit(W, dmg, srcX, kind);
+  }
+  render(g, W) {
+    const x = Math.round(this.x), y = Math.round(this.y), fl = this.flashT > 0;
+    if (this.hidden) {
+      const tell = Math.floor(W.t * 10 + this.x) % 37 === 0;
+      g.fillStyle = PAL.ink; g.fillRect(x - 1, y - 1, 16, 14);
+      g.fillStyle = tell ? PAL.red : '#F1B45C'; g.fillRect(x, y, 14, 12);
+      g.fillStyle = '#FF5FA3'; g.fillRect(x + 6, y, 2, 12); g.fillRect(x, y + 4, 14, 2);
+      g.fillStyle = '#FFE9A8'; g.fillRect(x + 1, y + 1, 4, 1);
+      g.fillStyle = '#FF5FA3'; g.fillRect(x + 4, y - 3, 3, 3); g.fillRect(x + 8, y - 3, 3, 3);
+      W.label('¡GRATIS!.EXE', this.cx, y - 18, PAL.gold, { prio: 1 });
+      return;
+    }
+    const open = this.revealT > 0 ? 3 : 4 + Math.round(Math.sin(this.t * 10));
+    g.fillStyle = PAL.ink; g.fillRect(x - 1, y - open - 1, 16, 14 + open);
+    g.fillStyle = fl ? '#FFFFFF' : '#A02B38'; g.fillRect(x, y + 2, 14, 10);
+    g.fillStyle = fl ? '#FFFFFF' : '#C43A48'; g.fillRect(x, y - open, 14, 3);
+    g.fillStyle = '#FFFFFF'; for (let i = 0; i < 4; i++) { g.fillRect(x + 1 + i * 3, y + 2, 2, 2); g.fillRect(x + 2 + i * 3, y - open + 3, 2, 1); }
+    g.fillStyle = PAL.gold; g.fillRect(x + 3, y + 6, 2, 2); g.fillRect(x + 9, y + 6, 2, 2);
+    g.fillStyle = '#3A1A20'; g.fillRect(x + 2, y + 12, 2, 2); g.fillRect(x + 10, y + 12, 2, 2);
+  }
+}
+// StackOverflow: una pila que crece; cada golpe desapila el marco de ARRIBA (LIFO).
+class StackOverflowEnemy extends Enemy {
+  constructor(cx, cy, p) {
+    super(cx, cy, p, 16, 12, 2);
+    this.kind = 'stack'; this.frames = 2; this.pushT = 2.6; this.bottom = this.y + this.h; this.xp = 12; this.stompable = true;
+    this.names = ['main', 'f()', 'g()', 'h()', 'k()', 'r()'];
+    this.fit();
+  }
+  fit() { this.h = Math.max(12, this.frames * 6); this.y = this.bottom - this.h; this.hp = this.maxHp = this.frames; } // (mínimo 12 px: el último marco debe poder recibir un disparo)
+  behave(W, dt) {
+    this.pushT -= dt;
+    if (this.pushT <= 0) {
+      this.pushT = 2.6;
+      if (this.frames < 6) { this.frames++; this.fit(); floatText(W, this.cx, this.y - 8, 'PUSH ' + this.names[this.frames - 1], PAL.amber); AudioSys.play('tick'); }
+      else {
+        // desbordamiento de pila: se derrumba lanzando marcos
+        floatText(W, this.cx, this.y - 10, '¡STACK OVERFLOW!', PAL.red); AudioSys.play('glitch'); W.shake(2, 0.2);
+        for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + (i - 1) * 0.7; const pr = new Projectile(this.cx, this.y, Math.cos(a) * 90, Math.sin(a) * 90 - 20, { owner: 'enemy', col: PAL.amber, life: 2 }); W.projectiles.push(pr); }
+        this.frames = 2; this.fit();
+        if (!W.has('tip_stack')) W.tip('stack', 'STACK OVERFLOW: una pila sólo crece por arriba y sólo se vacía por arriba (LIFO). Cada golpe desapila el último marco; no la dejes llegar a 6.');
+      }
+    }
+  }
+  hit(W, dmg, srcX, kind) {
+    if (this.dead) return false;
+    const n = Math.min(this.frames, kind === 'pulse' ? 2 : 1);
+    floatText(W, this.cx, this.y - 8, 'POP ' + this.names[this.frames - 1], PAL.green);
+    this.frames -= n; this.flashT = 0.15; AudioSys.play('hit');
+    W.particles.burst(this.cx, this.y, 8, { col: [PAL.amber, PAL.white], max: 60 });
+    if (this.frames <= 0) { this.hp = 0; this.die(W); return true; }
+    this.fit(); this.pushT = Math.max(this.pushT, 1.2);
+    return true;
+  }
+  render(g, W) {
+    const x = Math.round(this.x);
+    for (let i = 0; i < this.frames; i++) {
+      const y = Math.round(this.bottom - (i + 1) * 6), top = i === this.frames - 1;
+      g.fillStyle = PAL.ink; g.fillRect(x - 1, y - 1, 18, 8);
+      g.fillStyle = this.flashT > 0 && top ? '#FFFFFF' : i % 2 ? '#8A4B2A' : '#A0612F'; g.fillRect(x, y, 16, 6);
+      g.fillStyle = top ? PAL.gold : '#D98A3D'; g.fillRect(x, y, 16, 1);
+    }
+    const top = Math.round(this.bottom - this.frames * 6);
+    g.fillStyle = '#FFFFFF'; g.fillRect(x + 4, top + 2, 2, 2); g.fillRect(x + 10, top + 2, 2, 2);
+    W.label(this.names[this.frames - 1] + ' ▲', this.cx, top - 14, this.frames >= 5 ? PAL.red : PAL.amber, { prio: 1, back: false, shadow: '#000000' });
+  }
+}
+ENTITY_TYPES.memoryleak = MemoryLeakEnemy;
+ENTITY_TYPES.trojan = TrojanEnemy;
+ENTITY_TYPES.stack = StackOverflowEnemy;
+MemoryLeakEnemy.prototype.glow = function () { return [this.cx, this.cy, 12, '#FF6FD8', 0.25]; };
+TrojanEnemy.prototype.glow = function () { return this.hidden ? [this.cx, this.cy, 14, '#FFD166', 0.35] : [this.cx, this.cy, 12, '#FF4F7A', 0.25]; };
+StackOverflowEnemy.prototype.glow = function () { return [this.cx, this.y + 4, 12, '#F1B45C', 0.22]; };
+
+// ---------------------------------------------------------------- BESTIARIO (Codex «AMENAZAS») ----
+// Cada amenaza es un fallo real del sistema; su contramedida es el concepto que lo resuelve.
+const THREATS = [
+  ['bitcorrupt', 'BitCorrupt (bit corrupto)', 'Un bit que cambió de valor por error: un 0 que debía ser 1, o al revés.', 'Patrulla y daña al contacto.', 'DEBUG PING restaura un bit; ALU PULSE (XOR) restaura varios de golpe.', 'Los errores de bit existen de verdad: por eso hay bits de paridad y memoria ECC.', 'Casi todas las regiones.'],
+  ['drone', 'Dron de entrenamiento', 'Un blanco de práctica del Boot Camp.', 'Flota sin atacar.', 'Cualquier disparo.', 'Practicar sin riesgo también es aprender.', 'Boot Camp.'],
+  ['cachemiss', 'CacheMiss', 'Un fallo de caché: el dato no estaba cerca y hay que ir a buscarlo lejos.', 'Te persigue y te ralentiza (latencia).', 'CACHE BOOST: con acceso rápido, sus golpes aciertan.', 'Un fallo de caché cuesta cientos de ciclos: la localidad importa.', 'Torre de la Memoria, NULL CORE.'],
+  ['buserror', 'BusError', 'Un paquete enviado por el bus equivocado.', 'Los disparos no le afectan: sólo cambia de carril.', 'BUS BRIDGE: enruta su paquete por el bus correcto (datos, direcciones o control).', 'Cada señal tiene su bus: el QUÉ, el DÓNDE y el CUÁNDO.', 'Autopista de los Buses.'],
+  ['overheat', 'OverHeat', 'Un componente trabajando por encima de su límite térmico.', 'Sube la temperatura a su alrededor y disipa los ataques.', 'Enfriarlo con un ventilador y luego atacar.', 'Sin refrigeración no hay rendimiento: el calor provoca throttling.', 'Laboratorio de Rendimiento.'],
+  ['deadlock', 'Deadlock', 'Dos procesos que se esperan mutuamente: espera circular.', 'Ignora los golpes sueltos.', 'Golpear a los dos casi a la vez (PARALLEL CLONE o ALU PULSE).', 'Para romper un interbloqueo hay que romper la espera circular.', 'Laboratorio de Rendimiento.'],
+  ['nullpointer', 'NullPointer', 'Un puntero a la dirección 0x0000: no apunta a nada válido.', 'Aparece y desaparece.', 'REGISTER RECALL fija su dirección y lo hace visible.', 'Seguir un puntero nulo es uno de los errores más comunes en programación.', 'Kernel Perdido.'],
+  ['packetstorm', 'PacketStorm', 'Una avalancha de solicitudes que satura el sistema.', 'Dispara ráfagas de paquetes; ignora los ataques.', 'INTERRUPT SHIELD lo interrumpe; entonces es vulnerable.', 'Las interrupciones permiten atender lo urgente sin perder lo que estabas haciendo.', 'Distrito de E/S.'],
+  ['memoryleak', 'MemoryLeak (fuga de memoria)', 'Memoria que un programa reserva y nunca libera.', 'Crece con el tiempo; al destruirlo se reparte en fragmentos.', 'Eliminarlo pronto, antes de que crezca; el pisotón también funciona.', 'Una fuga pequeña, repetida miles de veces, acaba agotando la RAM.', 'Torre de la Memoria, Kernel Perdido.'],
+  ['trojan', 'Troyano', 'Malware disfrazado de algo útil o gratuito.', 'Parece un regalo; cuando te acercas, ataca a saltos.', 'Analizarlo a distancia (un disparo lo revela) antes de acercarte.', 'No ejecutes programas de origen desconocido, por muy tentadores que parezcan.', 'Placa Base, Distrito de E/S, Kernel Perdido.'],
+  ['stack', 'StackOverflow', 'Una pila de llamadas que crece sin control (por ejemplo, una recursión sin fin).', 'Apila un marco cada pocos segundos; al llegar a 6 se desborda.', 'Cada golpe desapila el último marco (LIFO); ALU PULSE desapila dos.', 'La pila es LIFO: lo último que entra es lo primero que sale.', 'Núcleo del Procesador, Forja ALU, Kernel Perdido.']
+];
+for (const [k, name, def, func, inp, out, conn] of THREATS) CODEX.push({ id: 'en_' + k, cat: 'AMENAZAS', name, concept: null, def, func, inp, out, conn, lat: 0, cap: 0, labels: ['QUÉ REPRESENTA', 'COMPORTAMIENTO', 'CONTRAMEDIDA', 'LECCIÓN', 'DÓNDE APARECE'] });
+for (const id in GUARDIAN_SPECS) {
+  const s = GUARDIAN_SPECS[id], lv = LEVELS.findIndex(L => L.guardian && L.guardian.id === id);
+  CODEX.push({ id: 'g_' + id, cat: 'AMENAZAS', name: 'Guardián: ' + s.name, concept: s.concept, def: 'Guardián de ' + (LEVELS[lv] ? LEVELS[lv].name : 'la región') + ': ' + s.title + '.', func: s.tip.replace(/\s*\[\{[AQE]\}\]/g, ''), inp: s.weak ? s.weak.tip.replace(/\s*\[\{[AQE]\}\]/g, '') : (s.guard ? s.guard.tip.replace(/\s*\[\{[AQE]\}\]/g, '') : 'Esquivar, disparar y responder bien sus consultas.'), out: s.qs.map(q => q.why).slice(0, 2).join(' '), conn: 'Recompensa: chip ' + CHIPS[s.chip].n + ' (' + CHIPS[s.chip].d + ')', lat: 0, cap: 0, labels: ['QUÉ REPRESENTA', 'CÓMO VENCERLO', 'CLAVE', 'LECCIÓN', 'RECOMPENSA'] });
+}
+for (const e of CODEX) CODEX_BY_ID[e.id] = e;
+
+// ---------------------------------------------------------------- LOGROS NUEVOS ----
+ACHIEVEMENTS.push(
+  { id: 'guardians', n: 'Guardián de guardianes', d: 'Vence a los nueve guardianes de región.' },
+  { id: 'combo5', n: 'Multihilo', d: 'Encadena un combo de 5 enemigos.' },
+  { id: 'bestiary', n: 'Analista de amenazas', d: 'Completa el bestiario de amenazas comunes.' }
+);
+const _achCheck = Achievements.check;
+Achievements.check = function () {
+  _achCheck.call(this);
+  if (!PROG) return;
+  if (Object.keys(GUARDIAN_SPECS).every(id => PROG.flags['G_' + id])) this.unlock('guardians');
+  if (THREATS.every(t => PROG.codex.includes('en_' + t[0]))) this.unlock('bestiary');
+};
+
+// ---------------------------------------------------------------- RADAR (chip PREFETCH) ----
+function drawPrefetchRadar(g, W) {
+  if (!Chips.on('prefetch')) return;
+  const c = W.cam;
+  for (const e of W.entities) {
+    if (e.dead || !(e.kind === 'fragment' || e.kind === 'letter' || e.kind === 'echo')) continue;
+    const sx = e.x + (e.w || 10) / 2 - c.x, sy = e.y + (e.h || 10) / 2 - c.y;
+    if (sx > 0 && sx < W_HUD_R && sy > 0 && sy < H) continue;
+    if (Math.abs(sx - W_HUD_R / 2) > 900 || Math.abs(sy - H / 2) > 500) continue;
+    const ex = clamp(sx, 10, W_HUD_R - 10), ey = clamp(sy, 50, H - 24);
+    const col = e.kind === 'fragment' ? PAL.gold : e.kind === 'letter' ? '#FFE9A8' : PAL.violet;
+    const a = Math.atan2(sy - ey, sx - ex);
+    g.globalAlpha = 0.6 + 0.3 * Math.sin(W.t * 5);
+    g.fillStyle = col; g.fillRect(Math.round(ex) - 2, Math.round(ey) - 2, 5, 5);
+    g.fillRect(Math.round(ex + Math.cos(a) * 5), Math.round(ey + Math.sin(a) * 5), 2, 2);
+    g.globalAlpha = 1;
+  }
+}
+
+// ---------------------------------------------------------------- MÁS ENEMIGOS POR REGIÓN ----
+// [tipo, casilla x, casilla y (donde se apoya), propiedades]. Lejos del inicio, de terminales y puzles.
+LEVEL0.spawns = [['bitcorrupt', 23, 15, { hp: 2, range: 3, bits: '101' }], ['bitcorrupt', 61, 15, { hp: 2, range: 3, bits: '011' }], ['bitcorrupt', 90, 15, { hp: 3, range: 4 }]];
+LEVEL1.spawns = [['bitcorrupt', 18, 15, { hp: 3, range: 4 }], ['trojan', 35, 15, { range: 5 }], ['bitcorrupt', 82, 15, { hp: 3, range: 5 }], ['bitcorrupt', 125, 12, { hp: 2, range: 3 }]];
+LEVEL2.spawns = [['stack', 18, 15, {}], ['bitcorrupt', 30, 15, { hp: 3, range: 4 }], ['stack', 95, 15, {}], ['bitcorrupt', 101, 15, { hp: 3, range: 4 }]];
+LEVEL3.spawns = [['stack', 34, 15, {}], ['bitcorrupt', 51, 15, { hp: 4, range: 5 }], ['bitcorrupt', 96, 15, { hp: 4, range: 5 }], ['stack', 150, 15, {}]];
+LEVEL4.spawns = [['memoryleak', 18, 14, { range: 5 }], ['memoryleak', 16, 62, { range: 6 }], ['memoryleak', 11, 86, { range: 5 }]];
+LEVEL5.spawns = [['bitcorrupt', 75, 15, { hp: 3, range: 5 }], ['memoryleak', 90, 15, { range: 5 }], ['bitcorrupt', 162, 15, { hp: 4, range: 5 }]];
+LEVEL6.spawns = [['trojan', 30, 15, { range: 5 }], ['bitcorrupt', 57, 15, { hp: 3, range: 3 }], ['trojan', 98, 15, { range: 5 }], ['memoryleak', 130, 15, { range: 6 }], ['bitcorrupt', 148, 15, { hp: 4, range: 5 }]];
+LEVEL7.spawns = [['memoryleak', 18, 15, { range: 5 }], ['bitcorrupt', 87, 15, { hp: 4, range: 5 }], ['stack', 128, 15, {}]];
+LEVEL8.spawns = [['memoryleak', 59, 12, { range: 3 }], ['trojan', 87, 15, { range: 5 }], ['stack', 47, 18, {}], ['memoryleak', 150, 13, { range: 4 }]];
 
 
 // ==================== 99_main.js ====================

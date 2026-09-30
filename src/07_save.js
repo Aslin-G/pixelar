@@ -39,9 +39,9 @@ function newProgress() {
     codex: [], blueprint: ['cpu'], bpTabs: ['hw'],
     quests: {}, choices: {}, flags: {},
     fragments: [], letters: [], historic: [], achievements: [],
-    stats: { time: 0, hints: 0, answered: 0, correct: 0, firstTry: 0, failed: [], deaths: 0, enemies: 0, reviews: 0, levelTimes: {}, noHintStreak: 0, calibrated: 0 },
+    stats: { time: 0, hints: 0, answered: 0, correct: 0, firstTry: 0, failed: [], deaths: 0, enemies: 0, reviews: 0, levelTimes: {}, noHintStreak: 0, calibrated: 0, guardians: 0, stomps: 0 },
     usedChallenges: [], seenDialogues: [], trust: { nexo: 0, nul: 0 },
-    hp: 5, maxHp: 5, teacher: false
+    hp: 5, maxHp: 5, teacher: false, chips: [], equip: []
   };
 }
 function migrateProgress(d) {

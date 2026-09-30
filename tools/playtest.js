@@ -42,6 +42,9 @@ const shots = process.argv[4];
     }
     const oi = Block.prototype.interact; Block.prototype.interact = function (W) { if (BOT.traceBlocks) console.warn('Block.interact ' + this.id + ' ' + new Error().stack.split('\n').slice(2, 5).join(' <- ')); return oi.call(this, W); };
     BOT.traceBlocks = false;
+    // registrar cada muerte del bot con la causa (último golpe recibido)
+    const oh = Player.prototype.hurt; Player.prototype.hurt = function (W, dmg, srcX, env) { const hp0 = this.hp; oh.call(this, W, dmg, srcX, env); if (this.hp < hp0) BOT.lastHurt = (env ? 'entorno' : 'golpe') + ' @' + Math.floor(this.x / TS) + ',' + Math.floor(this.y / TS) + ' ' + new Error().stack.split('\n').slice(2, 4).map(l => l.trim().split(' ')[1]).join(' <- '); };
+    const od = Game.playerDied.bind(Game); Game.playerDied = function (W) { console.warn('MUERTE en nivel ' + W.index + ': ' + BOT.lastHurt); od(W); };
     // Alcanzabilidad «en vivo»: BFS de plataformas sobre el estado ACTUAL del mundo
     // (puertas cerradas, puentes inactivos, habilidades realmente obtenidas).
     BOT.reachFrom = (px, py, carry) => {
@@ -129,12 +132,54 @@ const shots = process.argv[4];
       }
       return e.dead ? 'ok' : 'NO (' + e.kind + (e.kind === 'overheat' ? ' ventiladores cerca: ' + W.entities.filter(x => x.kind === 'fan' && dist(x.cx, x.cy, e.cx, e.cy) < 96).length : '') + ')';
     };
+    // GUARDIÁN: combate con ataques reales y la contramedida de su concepto; consultas respondidas
+    // disparando al orbe correcto desde su lado (el bot no esquiva: se le da invulnerabilidad)
+    BOT.fightGuardian = () => {
+      const W = Game.world, p = W.player, B = W.v.guardian;
+      if (!B || B.dead) return 'ok';
+      const use = k => { const i = PROG.abilities.indexOf(k); if (i < 0) return false; PROG.selAbility = i; p.energy = 999; p.cds[k] = 0; W.useAbility(); return true; };
+      const at = (x, y) => { p.x = clamp(x - p.w / 2, B.A.x0 + 4, B.A.x1 - p.w - 4); p.y = y; p.vx = 0; p.vy = 0; };
+      let busy = false; const stats = { shots: 0, quiz: 0, uses: {} };
+      const u = k => { if (k === 'ground' || use(k)) stats.uses[k] = (stats.uses[k] || 0) + 1; };
+      for (let f = 0; f < 9000 && !B.dead; f++) {
+        if (!(Game.top() instanceof GameplayState) || W.scripts.blocking) { Game.update(1 / 60); continue; }
+        p.invuln = 1; p.hp = Math.max(p.hp, 2);
+        const sp = B.spec;
+        if (B.state === 'quiz' && W.v.gQuiz) {
+          const o = W.v.gQuiz.orbs.find(q => q.ok && !q.dead);
+          if (o && f % 12 === 0) { at(o.cx - 22, B.A.floor - p.h); p.facing = 1; p.attack(W); stats.quiz++; }
+          Game.update(1 / 60); continue;
+        }
+        if (B.state !== 'fight' && B.state !== 'stun') { Game.update(1 / 60); continue; }
+        const T = B.twin;
+        // posición: a su lado, a la altura de su centro (si flota, equivale a saltar y disparar)
+        if (f % 20 === 0) {
+          const side = p.cx < B.cx ? -1 : 1, gy = sp.mode === 'hover' && B.state !== 'stun' ? B.y + B.h / 2 - 7 : B.A.floor - p.h;
+          if (T) at((B.cx + T.cx) / 2, B.A.floor - p.h); else at(B.cx + side * (B.w / 2 + 26), gy);
+        }
+        p.facing = B.cx > p.cx ? 1 : -1;
+        if (f % 30 === 0) {
+          if (sp.id === 'surge' && B.over > 0) { const n = W.ent('gnd'); BOT.tpEnt(n); BOT.pq.push(0); n.interact(W); u('ground'); }
+          if (sp.id === 'overclock' && B.state === 'fight') { at(B.cx - p.facing * 40, B.y + B.h / 2 - 7); p.facing = B.cx > p.cx ? 1 : -1; u('fetchDash'); }
+          if (sp.id === 'overflow' && dist(p.cx, p.y, B.cx, B.cy) < 60) u('aluPulse');
+          if (sp.id === 'thrash' && p.boostT <= 0) u('cacheBoost');
+          if (sp.id === 'busjam' && !(B.openT > 0) && !busy && B.state === 'fight') { busy = true; at(B.cx - 30, B.A.floor - p.h); BOT.pq.push(B.pk.k); W.run(function* (W2) { yield* B.reroute(W2); busy = false; }, 'botreroute'); }
+          if (sp.id === 'irqstorm' && B.freezeT <= 0 && B.state === 'fight') { at(B.cx - 30, B.y + B.h / 2 - 7); u('interruptShield'); }
+          if (sp.id === 'panic' && !B.vis && !(B.pinT > 0)) u('registerRecall');
+          if (sp.id === 'deadlock' && T) { if (Math.abs(T.cx - B.cx) < 80) u('aluPulse'); else { p.facing = T.cx < p.cx ? -1 : 1; u('parallelClone'); p.facing = B.cx > p.cx ? 1 : -1; } }
+        }
+        if (f % 14 === 0) { p.attack(W); stats.shots++; }
+        Game.update(1 / 60);
+      }
+      BOT.gStats = stats;
+      return B.dead ? 'ok' : 'NO (hp ' + B.hp + '/' + B.maxHp + ', estado ' + B.state + ')';
+    };
     BOT.W = () => Game.world;
     BOT.idle = () => { const W = Game.world, st = Game.top(); return !!W && st instanceof GameplayState && !W.scripts.busy && W.lockCount === 0 && !W.player.dead; };
     BOT.tp = (x, y) => { const p = Game.world.player; p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.climbing = false; p.dashT = 0; };
     BOT.tpEnt = (e) => { BOT.checkReach(e); BOT.tp(e.x + e.w / 2 - 5, e.y + e.h - 15); };
     BOT.bid = 0;
-    BOT.ents = () => Game.world.entities.map((e) => ({ pick: !!(e.p && e.p.onPick && e.kind === 'block' && Game.world.def.id === 0), enemy: !!e.enemy && e.kind !== 'boss', i: e.__bid || (e.__bid = ++BOT.bid), id: e.id || null, n: e.constructor.name, kind: e.kind, x: e.x, y: e.y, w: e.w, h: e.h, inter: !!e.interactive, dead: !!e.dead }));
+    BOT.ents = () => Game.world.entities.map((e) => ({ pick: !!(e.p && e.p.onPick && e.kind === 'block' && Game.world.def.id === 0), enemy: !!e.enemy && e.kind !== 'boss' && !e.big, i: e.__bid || (e.__bid = ++BOT.bid), id: e.id || null, n: e.constructor.name, kind: e.kind, x: e.x, y: e.y, w: e.w, h: e.h, inter: !!e.interactive, dead: !!e.dead }));
     // arranque de partida nueva real (no modo docente)
     PROG = newProgress();
     if (from > 0) { const pre = LEVEL_PRESETS[from] || {}; PROG.abilities = (pre.abilities || []).slice(); PROG.selAbility = Math.max(0, PROG.abilities.length - 1); Object.assign(PROG.flags, pre.flags || {}); PROG.blueprint = (pre.bp || ['cpu']).slice(); PROG.bpTabs = (pre.tabs || ['hw']).slice(); PROG.xp = pre.xp || 0; PROG.playerLevel = Progression.levelFor(PROG.xp); }
@@ -174,6 +219,8 @@ const shots = process.argv[4];
         await act(`
           const e = Game.world.entities.find(x => x.__bid === arg.i); if (!e || e.dead) return;
           const W = Game.world;
+          // lo que está dentro de la arena del guardián se deja para su combate
+          const G = W.def.guardian; if (G && G.gate && !W.v.guardianDone) { const A = G.arena; if (e.x >= A.x0 - 8 && e.x <= A.x1 && e.y >= A.top - 16 && e.y <= A.floor) return; }
           // modo estricto: sólo se actúa sobre lo alcanzable desde la posición actual
           if (!BOT.canReach(e)) { BOT.skipped.push((e.enemy ? 'enemigo ' + e.kind : e.kind === 'trigger' ? 'trigger ' + e.p.id : e.constructor.name) + (e.id ? '#' + e.id : '') + ' @' + Math.floor(e.x / TS) + ',' + Math.floor(e.y / TS)); return; }
           if (e.enemy) { if (W.def.id === 9) return; const r = BOT.fight(e); if (r !== 'ok') BOT.warn.push('enemigo no derrotado: ' + e.kind + (e.id ? '#' + e.id : '') + ' ' + r); return; }
@@ -189,6 +236,28 @@ const shots = process.argv[4];
       if (solver && solver.run) await solver.run(page, act, pass);
       const done = await page.evaluate(() => { const ex = Game.world.entities.find(e => e.constructor.name === 'Exit'); return !ex || !ex.p.needs || Game.world.has(ex.p.needs); });
       if (done && pass >= 1) break; // siempre al menos una pasada tras el solucionador
+    }
+    // GUARDIÁN de la región: abrir la compuerta acercándose, entrar a pie (alcanzable) y combatir
+    const gInfo = await page.evaluate(() => {
+      const W = Game.world, B = W.v.guardian; if (!B || B.dead || W.v.guardianDone) return null;
+      const gate = W.ent('gate');
+      if (gate) { BOT.tp(gate.x - 24, gate.y + gate.h - 15); for (let k = 0; k < 30; k++) Game.update(1 / 60); if (!gate.opened) return { name: B.spec.name, err: 'compuerta cerrada (' + gate.p.openWhen + ')' }; }
+      const tx = B.A.x0 + ((B.G.wakeX || 4) + 3) * TS, ty = B.A.floor - 15;
+      const ok = BOT.canReach({ x: tx, y: ty, w: 10, h: 15 });
+      if (!ok) BOT.warn.push('arena del guardián inalcanzable');
+      BOT.tp(tx, ty);
+      return { name: B.spec.name };
+    });
+    if (gInfo) {
+      if (gInfo.err) console.log('   ✗ GUARDIÁN ' + gInfo.name + ': ' + gInfo.err);
+      else {
+        await page.waitForFunction(() => { const B = Game.world.v.guardian; return B && (B.state === 'fight' || B.dead); }, null, { timeout: 30000 }).catch(() => {});
+        await shot('lv' + lv + '_guardian');
+        const gr = await page.evaluate(() => { const t0 = Game.world.t; const r = BOT.fightGuardian(); return { r, t: Math.round(Game.world.t - t0), stats: BOT.gStats }; });
+        await waitIdle(30000);
+        const after = await page.evaluate(() => { const W = Game.world, B = W.v.guardian; return { flag: W.has('G_' + B.spec.id), chips: PROG.chips.join(','), equip: PROG.equip.join(','), gate: W.ent('gate') ? W.ent('gate').opened : '-' }; });
+        console.log('   guardián ' + gInfo.name + ': ' + gr.r + ' en ' + gr.t + ' s de juego ' + JSON.stringify(gr.stats) + ' → ' + JSON.stringify(after));
+      }
     }
     await shot('lv' + lv + '_end');
     const sweep = await page.evaluate(() => {

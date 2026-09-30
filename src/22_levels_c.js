@@ -68,7 +68,7 @@ const LEVEL6 = {
     s: { type: 'screen', id: 'dev1', sw: 3, sh: 2, idle: 'bars' }, z: { type: 'screen', id: 'dev2', sw: 3, sh: 2, idle: 'text' },
     p: { type: 'npc', npc: 'PROC', variant: 4, wander: 16, talk: function* (W) { yield* W.say([['', 'Un proceso de impresión espera turno: «¿Me toca? ¿Ya me toca? ¿Y ahora?»'], ['NEXO', 'Eso es polling en estado puro.', 'NEUTRAL']]); } },
     q: { type: 'npc', npc: 'PROC', variant: 0, wander: 10, talk: function* (W) { yield* W.say([['', 'Un proceso de red: «¡IRQ! ¡IRQ! ...Perdón, costumbre.»']]); } },
-    i: { type: 'npc', npc: 'IO', name: 'IO', talk: L6_ioTalk },
+    i: { type: 'npc', npc: 'IO', id: 'io', name: 'IO', talk: L6_ioTalk },
     y: { type: 'packetstorm', id: 'ps1', rate: 2.6 },
     D: { type: 'door', id: 'd1', color: PAL.red, flag: 'L6_storm' },
     R: { type: 'trigger', id: 'reunion' },
@@ -149,7 +149,7 @@ const LEVEL6 = {
   },
   hint(W) {
     const pre = PROG.flags.nexoReturned ? 'Hecho: ' : '';
-    if (!PROG.abilities.includes('interruptShield')) return { text: pre + 'IO, el operador de la estación, conoce el protocolo de interrupciones.', x: W.ent('i').cx, y: W.ent('i').y };
+    if (!PROG.abilities.includes('interruptShield')) return { text: pre + 'IO, el operador de la estación, conoce el protocolo de interrupciones.', x: W.ent('io').cx, y: W.ent('io').y };
     if (!W.has('L6_storm')) return { text: pre + 'PacketStorm sólo es vulnerable interrumpido: usa INTERRUPT SHIELD cerca de él.', x: W.ent('ps1') ? W.ent('ps1').cx : null, y: W.ent('ps1') ? W.ent('ps1').y : null };
     if (!W.has('term_t_poll')) return { text: pre + 'La terminal del teclado: ¿polling o interrupciones?', x: W.ent('t_poll').cx, y: W.ent('t_poll').y };
     if (!W.has('L6_done')) return { text: pre + 'La estación de prioridades, al final del distrito.', x: W.ent('t_prio') ? W.ent('t_prio').cx : null, y: W.ent('t_prio') ? W.ent('t_prio').y : null };

@@ -38,9 +38,11 @@ const shots = process.argv[2];
         const m = g.getTransform(), s = h / Font.ROWS;
         const X = m.a * x + m.e, Y = m.d * y + m.f;
         if (X > W + 2 || Y > H + 2 || X + w < -2 || Y + h < -2) return;
-        recs.push({ text, x: X, y: Y + 2 * s, w, h: 7 * s, s, o: order++ });
+        recs.push({ text, x: X, y: Y + 2 * s, w, h: 7 * s, s, o: order++, bit: OV.inParticles });
       };
-      try { Game.render(); } finally { Font.trace = null; G.fillRect = fr; }
+      const pr = Particles.prototype.render; Particles.prototype.render = function () { OV.inParticles = true; try { return pr.apply(this, arguments); } finally { OV.inParticles = false; } };
+      const pj = Projectile.prototype.render; Projectile.prototype.render = function () { OV.inParticles = true; try { return pj.apply(this, arguments); } finally { OV.inParticles = false; } };
+      try { Game.render(); } finally { Font.trace = null; G.fillRect = fr; Particles.prototype.render = pr; Projectile.prototype.render = pj; }
       const covered = (bx, by, bw, bh, o1, o2) => rects.some(r => r.o > o1 && (o2 == null || r.o < o2) && r.x <= bx + 0.5 && r.y <= by + 0.5 && r.x + r.w >= bx + bw - 0.5 && r.y + r.h >= by + bh - 0.5);
       OV.scenes++;
       const out = [];
@@ -50,6 +52,7 @@ const shots = process.argv[2];
         const iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
         if (ix <= 1 || iy <= 1) continue;
         if (a.text === b.text && Math.abs(a.x - b.x) <= 6 && Math.abs(a.y - b.y) <= 6 * a.s) continue; // sombra/relieve del mismo texto (intencionado)
+        if (a.bit || b.bit) continue; // partículas y proyectiles con forma de «0»/«1» (decoración, no texto)
         const bx = Math.max(a.x, b.x), by = Math.max(a.y, b.y);
         const first = a.o < b.o ? a : b, second = a.o < b.o ? b : a;
         if (covered(bx, by, ix, iy, first.o, second.o) || covered(bx, by, ix, iy, second.o)) continue; // uno de los dos queda tapado por un panel
@@ -102,7 +105,12 @@ const shots = process.argv[2];
     PROG.fragments = Object.keys(FRAGMENTS); for (const k of Object.keys(QUESTS)) PROG.quests[k] = 'active';
     Game.world.pending.length = 0; OV.frames(30);
     const gp = Game.top();
-    Game.push(new PauseState(gp)); for (let i = 0; i < 10; i++) { Game.top().sel = i; OV.capture('Pausa sel' + i); } Game.pop();
+    Game.push(new PauseState(gp)); for (let i = 0; i < Game.top().items.length; i++) { Game.top().sel = i; OV.capture('Pausa sel' + i); } Game.pop();
+    // firmware: sin chips, con todos y con distintas combinaciones equipadas
+    for (const [lab, own, eq] of [['vacío', [], []], ['todos', CHIP_ORDER, ['post', 'vrm', 'pipeline', 'alu', 'prefetch']], ['lleno', CHIP_ORDER, ['bus64', 'watchdog', 'raid', 'overclock', 'vrm']]]) {
+      PROG.chips = own.slice(); PROG.equip = eq.slice();
+      const fw = new FirmwareState(); Game.push(fw); for (let i = 0; i < CHIP_ORDER.length; i++) { fw.sel = i; OV.capture('Firmware ' + lab + ' sel' + i); } Game.pop();
+    }
     const bp = new BlueprintState(); Game.push(bp);
     for (let t = 0; t < bp.tabs.length; t++) { bp.tab = t; bp.pickDefault(); OV.frames(10); OV.capture('Blueprint ' + bp.tabs[t].id);
       const ids = (BP_TAB_NODES[bp.tabs[t].id] || []); for (const id of ids) { bp.sel = id; OV.capture('Blueprint ' + bp.tabs[t].id + ' nodo ' + id); } }
@@ -133,10 +141,33 @@ const shots = process.argv[2];
     const d2 = new DialogueState([['BYTE', '¿Qué hago ahora?', 'thinking', { ch: ['«Dímelo.»', '«Da igual. Sigamos, que hay compuertas por reparar en toda la forja.»', 'Una tercera opción bastante larga para ver el ajuste de las elecciones'] }]], { world: W });
     d2.chars = d2.full; Game.push(d2); OV.capture('Diálogo con elecciones'); Game.pop();
     Game.push(new ChoicePromptState('BUS BRIDGE — origen «CPU (DIRECCIÓN)». La CPU indica al controlador la posición 0x1F40 que quiere leer. ¿Qué tipo de señal es 0x1F40?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber, sub: 'CPU (DIRECCIÓN) → CONTROLADOR DE MEMORIA' })); OV.capture('Elección larga'); Game.pop();
+    W.player.invuln = 99; W.player.graceT = 99; for (const e of W.entities) if (e.enemy) e.dead = true; // (sólo interesa el HUD)
     W.bark('NEXO', long, 'HAPPY', 9); UI.toast('LOGRO: Explorador curioso', PAL.gold); UI.toast('+50 XP  historia', PAL.green); UI.toast('LETRA OCULTA «X» (3/5)', PAL.gold); W.tip(null, long);
     for (let k = 0; k < 8; k++) { OV.frames(20); OV.capture('HUD con aviso, toasts y consejo t' + k); }
     return 0;
   });
+
+  // ---------- guardianes: HUD en combate, consulta (con comentario y avisos) y aturdido ----------
+  for (let lv = 0; lv < 9; lv++) {
+    await run('guardián ' + lv, (lv) => {
+      startTeacherLevel(lv);
+      const W = Game.world; W.pending.length = 0;
+      if (W.def.exit.needs) W.flag(W.def.exit.needs);
+      const A = W.def.guardian.arena, p = W.player, B = W.v.guardian;
+      const adv = n => { for (let k = 0; k < n; k++) { const t = Game.top(); if (t.constructor.name === 'DialogueState') { t.chars = t.full; t.pause = 0; t.next(); } Game.update(1 / 60); } };
+      adv(10); p.x = A.x0 + 3 * TS; p.y = A.floor - 15; adv(20); p.x = A.x0 + 9 * TS; p.y = A.floor - 15;
+      for (let k = 0; k < 900 && B.state !== 'fight'; k++) { adv(1); if (k % 30 === 0) OV.capture('Guardián ' + lv + ' presentación ' + k); }
+      p.invuln = 99; p.graceT = 99;
+      for (let k = 0; k < 6; k++) { adv(25); OV.capture('Guardián ' + lv + ' combate ' + k); }
+      B.hp = Math.floor(B.maxHp * 0.7); B.damage(W, 1);
+      for (let k = 0; k < 6; k++) { adv(20); OV.capture('Guardián ' + lv + ' consulta ' + k); }
+      UI.toast('+12 XP  consulta', PAL.green); UI.toast('BESTIARIO: MemoryLeak (fuga de memoria)', PAL.violet);
+      const Q = W.v.gQuiz; if (Q) { const bad = Q.orbs.find(o => !o.ok); if (bad) bad.choose(W); adv(30); OV.capture('Guardián ' + lv + ' consulta fallo'); Q.orbs.find(o => o.ok).choose(W); }
+      for (let k = 0; k < 4; k++) { adv(20); OV.capture('Guardián ' + lv + ' aturdido ' + k); }
+      UI.captions.length = 0; UI.toasts.length = 0; // (subtítulos de sonido: no deben pasar a la escena siguiente)
+      return 0;
+    }, lv);
+  }
 
   // ---------- desafíos ----------
   const nCh = await run('desafios', () => {

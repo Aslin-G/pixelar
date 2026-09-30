@@ -119,8 +119,9 @@ const UI = {
     for (const t of this.toasts.slice(0, 3)) {
       const a = t.t < 0.2 ? t.t / 0.2 : t.t > 2.7 ? (3.2 - t.t) / 0.5 : 1;
       const w = Font.measure(t.text) + 12;
+      g.globalAlpha = clamp(a * 3, 0, 1); // el fondo se vuelve opaco enseguida: nada se ve a través
+      g.fillStyle = 'rgba(5,7,9,0.9)'; g.fillRect(W / 2 - w / 2, y, w, 13);
       g.globalAlpha = clamp(a, 0, 1);
-      g.fillStyle = 'rgba(5,7,9,0.85)'; g.fillRect(W / 2 - w / 2, y, w, 13);
       g.fillStyle = t.col; g.fillRect(W / 2 - w / 2, y + 12, w, 1);
       Font.draw(g, t.text, W / 2, y, t.col, { align: 'center' });
       g.globalAlpha = 1;
@@ -132,7 +133,7 @@ const UI = {
     for (let i = this.captions.length - 1; i >= 0; i--) {
       const c = this.captions[i];
       const w = Font.measure(c.text) + 8;
-      g.fillStyle = 'rgba(0,0,0,0.75)'; g.fillRect(6, y, w, 12);
+      g.fillStyle = 'rgba(0,0,0,0.88)'; g.fillRect(6, y, w, 12);
       Font.draw(g, c.text, 10, y - 1, PAL.grayL);
       y -= 13;
     }

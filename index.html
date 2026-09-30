@@ -4921,7 +4921,7 @@ class Camera {
   }
   update(dt, p) {
     let tx, ty;
-    if (this.lockT) { tx = this.lockT.x - W / 2; ty = this.lockT.y - H / 2; }
+    if (this.lockT && Number.isFinite(this.lockT.x) && Number.isFinite(this.lockT.y)) { tx = this.lockT.x - W / 2; ty = this.lockT.y - H / 2; }
     else {
       this.look = lerp(this.look, p.facing * 28, 1 - Math.exp(-dt * 2.5));
       tx = p.x + p.w / 2 - W / 2 + this.look;
@@ -5678,6 +5678,7 @@ class Player {
     this.near = null; this.platform = null; this.wasGrounded = false; this.trail = [];
   }
   get cx() { return this.x + this.w / 2; }
+  get cy() { return this.y + this.h / 2; }
   update(W, dt, control) {
     this.prevY = this.y; // para detectar pisotones (venía desde arriba)
     for (const k in this.cds) this.cds[k] = Math.max(0, this.cds[k] - dt);
@@ -5818,6 +5819,25 @@ class Player {
       return;
     }
     if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
+  }
+  // ATAQUE ESPECIAL de un jefe (pregunta rápida fallada): ocurre dentro de su cinemática, así que ignora
+  // el modo calma; quita salud y energía, pero nunca el último ♥. Devuelve { hp, en } (lo perdido).
+  specialHit(W, dmg, frac) {
+    if (this.dead) return { hp: 0, en: 0 };
+    const assist = Settings.data.assist, maxE = Progression.maxEnergy();
+    const en = Math.min(this.energy, maxE * frac * (assist ? 0.5 : 1));
+    this.energy -= en;
+    this.hurtT = 0.4; this.invuln = Math.max(this.invuln, 1.5);
+    if (this.grounded && !this.climbing) this.vy = -140;
+    AudioSys.play('hurt');
+    if (this.postShield) {
+      this.postShield = false; dmg--;
+      AudioSys.play('shield'); floatText(W, this.cx, this.y - 26, 'POST: ABSORBIÓ 1 ♥', PAL.cyan);
+    }
+    let hp = 0;
+    if (!assist) { hp = clamp(Math.min(dmg, this.hp - 1), 0, dmg); this.hp -= hp; }
+    if (hp) { W.damageTaken = true; if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5); }
+    return { hp, en: Math.round(en / maxE * 100) };
   }
   heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }
   dash(dir) { this.dashT = 0.16; this.dashTarget = null; this.vx = dir * 330; this.invuln = Math.max(this.invuln, 0.2); }
@@ -7463,7 +7483,7 @@ function drawHUD(g, W, st) {
     const b = W.barks[0];
     const spk = SPEAKERS[b.s] || SPEAKERS.SYS;
     const lines = UI.wrap(b.t, 300);
-    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : 58;
+    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : W.v.boss && W.v.boss.active ? 90 : 58; // (en NULL CORE, bajo el panel de estabilidad)
     const a = b.time < 0.15 ? b.time / 0.15 : b.dur - b.time < 0.3 ? (b.dur - b.time) / 0.3 : 1;
     g.globalAlpha = clamp(a, 0, 1);
     UI.toastTop = by + bh + 4; // los avisos se colocan debajo del comentario
@@ -7934,8 +7954,9 @@ class ProgressState {
       Font.draw(g, 'Tiempo ' + fmtTime(st.time) + '   Precisión ' + acc + '%   Pistas ' + st.hints + '   Repasos ' + st.reviews + '   Memorias ' + PROG.fragments.length + '/' + TOTAL_FRAGMENTS, 240, 216, PAL.grayL, { align: 'center' });
       Font.draw(g, 'Es una estimación de tu dominio a partir de tus respuestas: no mide inteligencia ni capacidad.', 240, 230, PAL.gray, { align: 'center' });
     } else {
+      const lh = Math.max(12, Math.min(17, Math.floor(222 / ACHIEVEMENTS.length))); // que la lista quepa siempre
       ACHIEVEMENTS.forEach((a, i) => {
-        const y = 18 + i * 17, has = PROG.achievements.includes(a.id);
+        const y = 18 + i * lh, has = PROG.achievements.includes(a.id);
         Font.draw(g, (has ? '■ ' : '□ ') + a.n, 16, y, has ? PAL.gold : PAL.gray);
         Font.draw(g, a.d, 160, y, has ? PAL.grayL : PAL.grayD);
       });
@@ -10333,24 +10354,28 @@ QM.register(BOSS_CH.concat([BALANCE_CH]));
 class CascadeBoss {
   constructor(x, y) {
     this.x = x; this.y = y; this.w = 120; this.h = 80; this.t = 0; this.layer = 3; this.dead = false; this.kind = 'cascade'; this.alwaysUpdate = true;
-    this.baseY = y; this.exposed = 0; this.hitsNeed = 3; this.hits = 0; this.fireT = 3; this.alpha = 0; this.enemyish = true; this.fade = 1;
+    this.baseY = y; this.exposed = 0; this.exposeT = 9; this.hitsNeed = 9; this.hits = 0; this.fireT = 3; this.alpha = 0; this.enemyish = true; this.fade = 1;
     this.blocks = [];
     for (let i = 0; i < 46; i++) this.blocks.push({ x: rand(-54, 54), y: rand(-34, 34), w: randi(4, 12), h: randi(3, 8), c: pick([PAL.red, PAL.violet, '#A02B38', PAL.white, '#5E3F9E']), s: rand(0.5, 2) });
   }
   get coreX() { return this.x; }
   get coreY() {
     if (this.exposed <= 0) return this.baseY;
-    const f = this.exposed < 0.8 ? this.exposed / 0.8 : clamp((6.5 - this.exposed) / 0.8, 0, 1);
+    const f = this.exposed < 0.8 ? this.exposed / 0.8 : clamp((this.exposeT - this.exposed) / 0.8, 0, 1);
     return lerp(this.baseY, this.floorY, easeInOut(f));
   }
   update(W, dt) {
     this.t += dt;
     this.alpha = approach(this.alpha, this.fade, dt);
     const B = W.v.boss;
-    if (!B || !B.active) return;
+    if (!B || !B.active || W.calm) return; // mientras se lee o se responde, CASCADE no acumula disparos
     if (this.exposed > 0) {
       this.exposed -= dt;
-      if (this.exposed <= 0) { this.hits = 0; W.bark('NULL', 'El núcleo de CASCADE se recompone. Vuelve a exponerlo.', null, 3); }
+      if (this.exposed <= 0) {
+        this.hits = 0;
+        if (B.state === 'core') B.state = 'console'; // la consola vuelve a estar disponible (antes quedaba bloqueada)
+        W.bark('NULL', 'El núcleo de CASCADE se recompone. Vuelve a exponerlo desde la consola.', null, 3);
+      }
       return;
     }
     this.fireT -= dt;
@@ -10366,7 +10391,7 @@ class CascadeBoss {
       AudioSys.play('glitch');
     }
   }
-  expose(W) { this.exposed = 6.5; this.hits = 0; this.floorY = W.player.y + 7; AudioSys.play('boss', { caption: '[CASCADE se desploma]' }); W.shake(4, 0.5); floatText(W, this.x, this.baseY + 40, '¡NÚCLEO EXPUESTO!', PAL.gold); }
+  expose(W, pre = 0) { this.exposed = this.exposeT; this.hits = Math.min(pre, this.hitsNeed - 1); this.floorY = W.player.y + 7; AudioSys.play('boss', { caption: '[CASCADE se desploma]' }); W.shake(4, 0.5); floatText(W, this.x, this.baseY + 40, '¡NÚCLEO EXPUESTO!', PAL.gold); }
   tryHit(W, px, py, r) {
     if (this.exposed <= 0) return false;
     const cy = this.coreY;
@@ -10406,6 +10431,7 @@ class CascadeBoss {
     if (exp) { Font.draw(g, 'NÚCLEO ' + this.hits + '/' + this.hitsNeed, cx, coreY - 22, PAL.gold, { align: 'center' }); if (Math.floor(this.t * 6) % 2) Font.draw(g, '▼', cx, coreY - 34, PAL.gold, { align: 'center' }); }
     if (!calm && Math.random() < 0.2) W.particles.spawn({ x: cx + rand(-50, 50), y: cy + rand(-30, 30), vy: 60, col: pick([PAL.red, PAL.violet]), life: 0.6, kind: 'glitch' });
     g.globalAlpha = 1;
+    if (W.v.gSpecial) specialRender(g, W, this, W.v.gSpecial);
   }
 }
 class BossConsole extends Ent {
@@ -10426,6 +10452,31 @@ class BossConsole extends Ent {
 }
 ENTITY_TYPES.bconsole = BossConsole;
 
+// Preguntas rápidas del ATAQUE ESPECIAL de CASCADE: dos por subsistema; después, las de su guardián
+const CASCADE_QUICK = [
+  [['¿Qué etapa escribe el resultado en el registro?', ['WRITE BACK', 'FETCH', 'DECODE'], 'WRITE BACK guarda el resultado (en SUB R3, R1, R2: en R3).'],
+    ['En SUB R3, R1, R2, ¿qué calcula la ALU?', ['R1 − R2', 'R3 − R1', 'R1 + R2'], 'En EXECUTE la ALU calcula R1 − R2; WRITE BACK lo guarda en R3.']],
+  [['0 XOR 1 =', ['1', '0'], 'XOR da 1 cuando las entradas son distintas.'],
+    ['¿Qué compuerta da la SUMA de un semisumador?', ['XOR', 'AND', 'OR'], 'SUMA = XOR; ACARREO = AND.']],
+  [['Un dato que se usa mucho conviene tenerlo en...', ['LA CACHÉ', 'EL SSD', 'LA NUBE'], 'La caché guarda cerca lo que se usa a menudo.'],
+    ['Tras un CACHE MISS, el dato se busca en...', ['LA RAM', 'LOS REGISTROS', 'LA GPU'], 'Si no está en la caché, hay que ir a la RAM, más lenta.']],
+  [['El valor que se escribe viaja por el bus de...', ['DATOS', 'CONTROL', 'DIRECCIONES'], 'El valor es un dato: bus de datos.'],
+    ['«¿DÓNDE escribo?» lo responde el bus de...', ['DIRECCIONES', 'DATOS', 'CONTROL'], 'Direcciones = dónde; datos = qué; control = cuándo y cómo.']],
+  [['IRQ del reloj (prioridad alta) e IRQ del ratón (baja): ¿cuál se atiende primero?', ['EL RELOJ', 'EL RATÓN'], 'Manda la prioridad, no el orden de llegada.'],
+    ['Antes de atender una IRQ, la CPU...', ['GUARDA SU ESTADO', 'SE APAGA', 'BORRA LA RAM'], 'Guardar, atender, restaurar y continuar.']],
+  [['Mejorar algo que NO es el cuello de botella...', ['NO AYUDA', 'LO DUPLICA', 'LO APAGA'], 'El límite sigue ahí: hay que atacar el cuello de botella.'],
+    ['Subir la frecuencia sin refrigerar provoca...', ['THROTTLING', 'MÁS RAM', 'UN BACKUP'], 'El calor obliga a la CPU a frenarse: throttling.']]
+];
+const CASCADE_GUARD = ['overclock', 'overflow', 'thrash', 'busjam', 'irqstorm', 'deadlock'];
+function cascadeQuick(B, ph) {
+  B.quickUsed = B.quickUsed || {};
+  const n = B.quickUsed[ph] = (B.quickUsed[ph] || 0) + 1;
+  const own = CASCADE_QUICK[ph] || [];
+  if (n <= own.length) { const a = own[n - 1]; return { q: a[0], o: a[1], why: a[2] }; }
+  const sp = GUARDIAN_SPECS[CASCADE_GUARD[ph]], pool = (sp && sp.quickPool) || [];
+  if (pool.length) return pool[(n - own.length - 1) % pool.length];
+  const a = own[(n - 1) % own.length]; return { q: a[0], o: a[1], why: a[2] };
+}
 function makeBossController(W) {
   const B = {
     active: false, phase: 0, state: 'idle', done: [false, false, false, false, false, false], stability: 100, console: null, shieldEvent: null,
@@ -10452,12 +10503,27 @@ function makeBossController(W) {
     },
     useConsole(W2, c) {
       const self = this;
+      if (this.state !== 'console') return;
       W2.run(function* () {
-        const r = yield* W2.challenge(BOSS_CH[self.phase], { source: 'boss', title: 'EMERGENCIA · ' + BOSS_PHASES[self.phase].n, noVariant: false });
+        const ph = self.phase;
+        const r = yield* W2.challenge(BOSS_CH[ph], { source: 'boss', title: 'EMERGENCIA · ' + BOSS_PHASES[ph].n, noVariant: false });
         if (r.ok) {
+          // ¿hubo errores en la consola? CASCADE aprovecha la brecha: ATAQUE ESPECIAL + pregunta rápida
+          let pre = 0;
+          if (!r.firstTry && !r.missing && !W2.player.dead) {
+            const C = W2.v.cascade;
+            yield* bossSpecial(W2, {
+              boss: self, restore: 'console', name: 'CASCADA DE FALLOS', who: 'CASCADE', col: PAL.red, concept: BOSS_PHASES[ph].concept, chId: 'boss_p' + ph,
+              quick: cascadeQuick(self, ph), why: 'La consola resistió un intento fallido y CASCADE aprovecha la brecha.',
+              origin: () => ({ x: C.x, y: C.baseY + 34 }), // la base de la masa (donde nacen sus tentáculos)
+              onDeflect() { pre = 3; self.stability = Math.min(100, self.stability + 10); },
+              onHit() { self.stability = Math.max(0, self.stability - 10); }
+            });
+          }
           self.state = 'core';
           W2.sfx('correct');
-          W2.v.cascade.expose(W2);
+          W2.v.cascade.expose(W2, pre);
+          if (pre) floatText(W2, W2.v.cascade.x, W2.v.cascade.baseY + 56, 'EL ATAQUE DAÑÓ SU NÚCLEO: ' + pre + '/' + W2.v.cascade.hitsNeed, PAL.cyan);
           W2.tip('core', '¡El núcleo de CASCADE está expuesto! Golpéalo con DEBUG PING [' + Input.label('attack') + '] o ALU PULSE.');
         } else { self.stability = Math.max(0, self.stability - 10); }
       }, 'console');
@@ -11212,8 +11278,11 @@ const LEVEL_PRESETS = LEVELS.map((L, i) => {
 // =============================================================================
 // GUARDIANES DE REGIÓN — un jefe al final de cada nivel (00–08). CASCADE sigue siendo el jefe final.
 // · Cada guardián encarna un FALLO del concepto de su región y tiene patrones telegrafiados.
-// · CONSULTA: al perder vida se blinda y pregunta; se responde DISPARANDO (o con E) al orbe correcto.
-//   Acertar lo deja VULNERABLE (daño doble); fallar sólo elimina ese orbe y explica por qué.
+// · CONSULTA: al perder vida (75 %, 50 % y 25 %) se blinda y pregunta; se responde DISPARANDO (o con
+//   E) al orbe correcto. Acertar lo deja VULNERABLE (daño doble).
+// · ATAQUE ESPECIAL: si la respuesta es incorrecta, el guardián carga un ataque (cinemática) y, mientras
+//   carga, lanza una PREGUNTA RÁPIDA sobre la misma idea. Acertarla desvía el ataque contra él; fallarla
+//   (o agotar el tiempo) hace que golpee a BYTE: le quita salud y energía (nunca el último ♥).
 // · DEBILIDAD: la habilidad aprendida en la región (como en Mega Man, pero con sentido: el concepto
 //   que acabas de entender es lo que desmonta el fallo).
 // · Arena al final del nivel: la compuerta se abre al completar la región, se cierra durante el
@@ -11224,7 +11293,7 @@ const gKeys = t => String(t || '').replace(/\{A\}/g, Input.label('attack')).repl
 const Guardians = {
   byLevel: {},
   quizShown(W) { const B = W && W.v.guardian; return !!(B && B.state === 'quiz' && W.v.gQuiz); },
-  active(W) { const B = W && W.v.guardian; return !!(B && !B.dead && ['intro', 'fight', 'quiz', 'stun', 'dying'].includes(B.state)); },
+  active(W) { const B = W && W.v.guardian; return !!(B && !B.dead && ['intro', 'fight', 'quiz', 'special', 'stun', 'dying'].includes(B.state)); },
   flag(spec) { return 'G_' + spec.id; },
   // se llama al crear el mundo de un nivel con guardián
   setup(W) {
@@ -11249,6 +11318,7 @@ const Guardians = {
   // HUD: barra de vida, consulta y cartel de presentación
   drawHUD(g, W) {
     const B = W.v.guardian;
+    drawSpecialFX(g, W);
     if (W.v.gCard) {
       const c = W.v.gCard; c.t += 1 / 60;
       if (c.t > 3) W.v.gCard = null;
@@ -11261,13 +11331,13 @@ const Guardians = {
       Font.draw(g, c.sub, W_HUD_R / 2, y + 42, PAL.grayL, { align: 'center' });
       g.globalAlpha = 1;
     }
-    if (!B || B.dead || !['fight', 'quiz', 'stun'].includes(B.state)) return;
+    if (!B || B.dead || !['fight', 'quiz', 'special', 'stun'].includes(B.state)) return;
     const sp = B.spec, x = 142, w = 184, y = 4;
     g.fillStyle = 'rgba(8,5,12,0.9)'; g.fillRect(x, y, w, 24);
     g.fillStyle = sp.col; g.fillRect(x, y + 23, w, 1);
     Font.draw(g, UI.fit(sp.name, w - 60), x + 4, y, sp.col);
-    const st = B.state === 'quiz' ? 'CONSULTA' : B.state === 'stun' ? '¡DAÑO ×2!' : B.guardOpen(W, null) ? '' : 'BLINDADO';
-    if (st) Font.draw(g, st, x + w - 4, y, B.state === 'stun' ? PAL.gold : B.state === 'quiz' ? PAL.cyan : PAL.gray, { align: 'right' });
+    const st = B.state === 'quiz' ? 'CONSULTA' : B.state === 'special' ? 'ATAQUE ESPECIAL' : B.state === 'stun' ? '¡DAÑO ×2!' : B.guardOpen(W, null) ? '' : 'BLINDADO';
+    if (st) Font.draw(g, st, x + w - 4, y, B.state === 'stun' ? PAL.gold : B.state === 'quiz' ? PAL.cyan : B.state === 'special' ? PAL.red : PAL.gray, { align: 'right' });
     const bx = x + 4, bw = w - 8, by = y + 14;
     g.fillStyle = '#1A0A12'; g.fillRect(bx, by, bw, 6);
     const f = clamp(B.shownHp / B.maxHp, 0, 1), f2 = clamp(B.hp / B.maxHp, 0, 1);
@@ -11293,11 +11363,13 @@ class AnswerOrb extends Ent {
   constructor(W, x, y, text, ok, idx) {
     super(0, 0, {}, 16, 16);
     this.x = x - 8; this.y = y - 8; this.baseY = this.y; this.text = text; this.ok = ok; this.idx = idx;
-    this.kind = 'answer'; this.layer = 2; this.interactive = true; this.alwaysUpdate = true; this.pop = 0;
+    this.kind = 'answer'; this.layer = 2; this.interactive = true; this.alwaysUpdate = true; this.pop = 0; this.age = 0;
   }
   get prompt() { return 'Elegir «' + this.text + '»'; }
-  update(W, dt) { this.t += dt; this.pop = Math.min(1, this.pop + dt * 3); this.y = this.baseY + Math.sin(this.t * 2.4 + this.idx) * 2; }
-  onPing(W) { this.choose(W); return true; }
+  update(W, dt) { this.t += dt; this.age += dt; this.pop = Math.min(1, this.pop + dt * 3); this.y = this.baseY + Math.sin(this.t * 2.4 + this.idx) * 2; }
+  // mientras aparece absorbe el disparo sin responder (ni lo deja pasar hacia otro orbe): así un tiro
+  // lanzado justo al abrirse la consulta no elige una respuesta por accidente
+  onPing(W) { if (this.age >= 0.4) this.choose(W); return true; }
   interact(W) { this.choose(W); }
   choose(W) {
     const q = W.v.gQuiz, B = W.v.guardian;
@@ -11311,7 +11383,7 @@ class AnswerOrb extends Ent {
     const r = Math.round(7 * s);
     for (let yy = -r; yy <= r; yy++) { const ww = Math.round(Math.sqrt(r * r - yy * yy)); g.fillStyle = yy < -r / 3 ? '#FFFFFF' : col; g.fillRect(cx - ww, cy + yy, ww * 2, 1); }
     g.fillStyle = shade(col, 0.5); g.fillRect(cx - 2, cy - 2, 4, 4);
-    W.label(this.text, cx, this.y - 15, col, { prio: 6 });
+    if (!W.v.gSpecial) W.label(this.text, cx, this.y - 15, col, { prio: 6 });
   }
 }
 AnswerOrb.prototype.glow = function () { return [this.cx, this.cy, 16, '#9FF6FF', 0.4]; };
@@ -11460,9 +11532,9 @@ class Guardian extends Ent {
     this.hp = this.maxHp = spec.hp; this.shownHp = spec.hp; this.state = 'hidden'; this.alpha = 0;
     this.flashT = 0; this.stunT = 0; this.freezeT = 0; this.vx = 0; this.vy = 0; this.face = -1; this.squash = 0;
     this.idleT = 1.2; this.move = null; this.moveIx = 0; this.phase = 0; this.grounded = spec.mode !== 'hover';
-    this.nQuiz = Math.min(2, (spec.qs || []).length);
-    this.thresholds = this.nQuiz === 2 ? [2 / 3, 1 / 3] : this.nQuiz === 1 ? [0.5] : [];
-    this.quizzesDone = 0; this.usedQ = []; this.marks = null; this.beam = null; this.ghost = null;
+    this.nQuiz = Math.min(3, (spec.qs || []).length);
+    this.thresholds = [[], [0.5], [2 / 3, 1 / 3], [0.75, 0.5, 0.25]][this.nQuiz];
+    this.quizzesDone = 0; this.usedQ = []; this.usedQuick = []; this.quizWrong = 0; this.marks = null; this.beam = null; this.ghost = null;
   }
   get speedK() { return 1 + this.phase * 0.16; }
   // ¿puede recibir daño ahora mismo? (mecánica de su concepto)
@@ -11485,6 +11557,7 @@ class Guardian extends Ent {
     if (this.state === 'intro' || this.state === 'dying') return; // los anima su guion
     const sp = this.spec;
     if (sp.update) sp.update(W, this, dt);
+    if (this.state === 'special') { this.physics(W, dt, true); return; } // lo anima su guion
     if (this.freezeT > 0) { this.freezeT -= dt; this.physics(W, dt, true); return; }
     if (this.state === 'stun') { this.stunT -= dt; this.physics(W, dt, true); this.contact(W, true); if (this.stunT <= 0) { this.state = 'fight'; this.idleT = 0.6; } return; }
     if (this.state === 'quiz') { this.physics(W, dt, true); if (sp.mode === 'hover') { this.x = lerp(this.x, (this.A.x0 + this.A.x1) / 2 - this.w / 2, 1 - Math.exp(-dt * 2)); this.y = lerp(this.y, this.A.floor - this.h - 116 + Math.sin(this.t * 2) * 3, 1 - Math.exp(-dt * 2)); } return; }
@@ -11542,7 +11615,7 @@ class Guardian extends Ent {
     if (!safe) p.hurt(W, 1, this.cx);
   }
   hit(W, dmg, srcX, kind) {
-    if (this.dead || this.state === 'hidden' || this.state === 'intro' || this.state === 'dying') return false;
+    if (this.dead || this.state === 'hidden' || this.state === 'intro' || this.state === 'dying' || this.state === 'special') return false;
     if (this.state === 'quiz') { floatText(W, this.cx, this.y - 8, 'BLINDADO: RESPONDE LA CONSULTA', PAL.cyan); AudioSys.play('ui_back'); return false; }
     const sp = this.spec;
     if (this.state !== 'stun' && !this.guardOpen(W, kind)) {
@@ -11576,7 +11649,7 @@ class Guardian extends Ent {
   startQuiz(W) {
     const sp = this.spec;
     this.state = 'quiz'; this.move = null; this.beam = null; this.marks = null; this.ghost = null; this.vx = 0;
-    for (const p of W.projectiles) if (p.owner !== 'player') p.dead = true;
+    for (const p of W.projectiles) p.dead = true; // también los del jugador que ya volaban hacia el guardián
     const pool = sp.qs.map((q, i) => i).filter(i => !this.usedQ.includes(i));
     const qi = pick(pool.length ? pool : sp.qs.map((q, i) => i)); this.usedQ.push(qi);
     const q = sp.qs[qi];
@@ -11597,15 +11670,43 @@ class Guardian extends Ent {
       if (Q.wrong === 0) Progression.addXP(12, 'consulta');
       W.bark(guide(), '✓ ' + Q.q.why, 'HAPPY', 5);
       W.v.gQuiz = null; this.quizzesDone++;
-      this.stun(W, 5, '¡CORRECTO! VULNERABLE');
+      this.stun(W, 6, '¡CORRECTO! VULNERABLE');
     } else {
-      Q.wrong++; orb.dead = true;
+      Q.wrong++; this.quizWrong++; orb.dead = true;
       W.sfx('wrong'); W.shake(2, 0.2);
       W.particles.burst(orb.cx, orb.cy, 16, { col: [PAL.red, PAL.amber], max: 90 });
-      for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + (i - 1) * 0.6; gShot(W, this, orb.cx, orb.cy, Math.cos(a) * 70, Math.sin(a) * 70, { life: 1.6 }); }
       const why = (Q.q.no && Q.q.no[orb.text]) || ('«' + orb.text + '» no es la respuesta.');
-      W.bark(guide(), '✗ ' + why, 'WORRIED', 5);
+      // respuesta incorrecta → ATAQUE ESPECIAL con pregunta rápida (la primera, sobre la misma idea)
+      const quick = this.pickQuick(Q);
+      if (quick && !W.player.dead) {
+        const self = this, sp = this.spec;
+        this.state = 'special'; // ya: ningún otro orbe puede responderse hasta que termine el ataque
+        W.run(function* () {
+          yield* bossSpecial(W, {
+            boss: self, restore: 'quiz', name: sp.special || 'ATAQUE ESPECIAL', who: sp.name, col: sp.col, concept: sp.concept, quick, why, chId: 'guard_' + sp.id,
+            origin: () => ({ x: self.cx, y: self.cy }),
+            // desviado: le hace daño, pero sin saltarse la consulta siguiente ni derrotarlo blindado
+            onDeflect() {
+              const next = self.thresholds[self.quizzesDone + 1];
+              const floor = next != null ? Math.floor(next * self.maxHp) + 1 : 1;
+              const d = Math.max(0, Math.min(Math.round(self.maxHp * 0.08), self.hp - floor));
+              if (d > 0) { self.hp -= d; self.flashT = 0.2; floatText(W, self.cx + 10, self.y - 8, '-' + d, PAL.gold); }
+            }
+          });
+        }, 'guardian_special');
+      } else W.bark(guide(), '✗ ' + why, 'WORRIED', 5);
     }
+  }
+  // pregunta rápida: primero la ligada a la consulta fallada; después, las generales del guardián
+  pickQuick(Q) {
+    const sp = this.spec;
+    if (Q.q.quick && !Q.quickUsed) { Q.quickUsed = true; return Q.q.quick; }
+    const pool = sp.quickPool || [];
+    if (!pool.length) return Q.q.quick || null;
+    let i = pool.findIndex((q, k) => !this.usedQuick.includes(k));
+    if (i < 0) { this.usedQuick = []; i = randi(0, pool.length - 1); }
+    this.usedQuick.push(i);
+    return pool[i];
   }
   defeat(W) {
     if (this.state === 'dying') return;
@@ -11634,6 +11735,7 @@ class Guardian extends Ent {
     if (sp.draw) sp.draw(g, W, this, x, y);
     g.globalAlpha = 1;
     // estados
+    if (this.state === 'special') specialRender(g, W, this, W.v.gSpecial);
     if (this.state === 'quiz') { this.ring(g, W, PAL.cyan); W.label('?', this.cx, this.y - 14 + Math.round(Math.sin(W.t * 5) * 2), PAL.cyan, { prio: 5, back: false, shadow: '#000000' }); }
     else if (this.state === 'stun') { for (let i = 0; i < 3; i++) { const a = W.t * 5 + i * 2.1; Font.draw(g, '★', this.cx + Math.cos(a) * 12, this.y - 8 + Math.sin(a) * 3, PAL.gold, { align: 'center' }); } }
     else if (this.state === 'fight' && !this.guardOpen(W, null)) this.ring(g, W, sp.guard.col || PAL.gray);
@@ -11736,6 +11838,7 @@ function* G_defeat(W, B) {
   yield 0.8;
   W.camFollow();
   Progression.addXP(60, 'guardián');
+  if (B.quizWrong === 0 && B.quizzesDone > 0) { Progression.addXP(40, 'consultas perfectas'); UI.toast('¡CONSULTAS PERFECTAS!', PAL.gold); Achievements.unlock('sage'); }
   if (sp.outro) yield* W.say(sp.outro(W), { id: 'G_outro_' + sp.id });
   if (sp.chip && !Chips.owned(sp.chip)) {
     Chips.grant(sp.chip);
@@ -11745,6 +11848,174 @@ function* G_defeat(W, B) {
   Achievements.check();
   Game.save();
   W.unlock();
+}
+
+// ---------------------------------------------------------------- ATAQUE ESPECIAL + PREGUNTA RÁPIDA ----
+// Común a los guardianes y a CASCADE. o = { boss, name, col, concept, quick: {q, o:[correcta, …], why},
+// why (explicación del error que lo provocó), chId, origin(W) → {x, y}, onDeflect(W), onHit(W) }.
+function* bossSpecial(W, o) {
+  const B = o.boss, p = W.player;
+  const restore = o.restore || B.state;
+  B.state = 'special';
+  W.lock();
+  try {
+    for (const q of W.projectiles) if (q.owner !== 'player') q.dead = true;
+    W.barks.length = 0; W.tipBox = null; // la explicación del error se lee en el panel de la pregunta
+    const S = W.v.gSpecial = { name: o.name, who: o.who || '', col: o.col || PAL.red, t: 0, charge: 0, blast: null, phase: 'charge', origin: o.origin || (() => ({ x: B.cx, y: B.cy })) };
+    // 1) cinemática: el jefe concentra energía (la cámara encuadra a ambos)
+    W.sfx('alarm', '[' + o.name.toLowerCase() + ': cargando]'); W.shake(2, 1.2);
+    const o0 = S.origin(W); W.cam.lockT = { x: (o0.x + p.cx) / 2, y: (o0.y + p.cy) / 2 };
+    for (const t0 = W.t; W.t - t0 < 1.5;) { S.t = W.t - t0; S.charge = S.t / 1.5 * 0.35; specialParticles(W, S); yield; }
+    // 2) pregunta rápida mientras sigue cargando
+    const q = o.quick, chars = Font.count(q.q) + q.o.join('').length;
+    const time = clamp(6 + chars * 0.05, 8, 14) * (Settings.data.assist ? 1.5 : 1);
+    const sig = Task.signal(), t0 = W.t;
+    S.phase = 'question';
+    Game.push(new QuickQuestionState(q, { time, name: o.name, col: S.col, why: o.why, special: S, onDone: r => sig.finish(r) }));
+    const res = yield sig;
+    const ok = !!(res && res.ok);
+    LearningModel.record({ concept: o.concept, chId: (o.chId || 'boss') + '_quick', correct: ok, firstTry: ok, hints: 0, time: W.t - t0, expected: time * 0.6, conf: null, difficulty: 1, transfer: true, prompt: 'Pregunta rápida: ' + q.q });
+    // 3) descarga: hacia BYTE, o desviada contra el propio jefe
+    const from = S.origin(W), to = { x: p.cx, y: p.y + 7 };
+    S.phase = 'blast'; S.charge = 1; S.blast = { x0: from.x, y0: from.y, x1: to.x, y1: to.y, t: 0 };
+    W.sfx(ok ? 'shield' : 'explosion', ok ? '[ataque desviado]' : '[impacto del ataque especial]');
+    for (const t1 = W.t; W.t - t1 < 0.45;) { S.blast.t = (W.t - t1) / 0.45; yield; }
+    if (ok) {
+      W.sfx('correct'); W.flash(PAL.cyan, 0.25);
+      S.col = PAL.cyan; S.blast = { x0: to.x, y0: to.y, x1: from.x, y1: from.y, t: 0 };
+      for (const t1 = W.t; W.t - t1 < 0.35;) { S.blast.t = (W.t - t1) / 0.35; yield; }
+      S.blast = null; S.charge = 0;
+      W.shake(5, 0.4); W.particles.burst(from.x, from.y, 40, { col: [PAL.cyan, PAL.white, o.col || PAL.red], max: 140, lmax: 1 });
+      floatText(W, from.x, from.y - 24, '¡ATAQUE DESVIADO!', PAL.cyan);
+      Progression.addXP(8, 'pregunta rápida');
+      if (o.onDeflect) o.onDeflect(W);
+      W.bark(guide(), '✓ ' + q.why + ' ¡El ataque se volvió contra él!', 'HAPPY', 5);
+    } else {
+      S.blast = null; S.charge = 0;
+      W.shake(7, 0.6); W.flash(PAL.red, 0.35);
+      W.particles.burst(to.x, to.y, 40, { col: [S.col, PAL.red, PAL.white], max: 150, lmax: 1 });
+      const lost = p.specialHit(W, o.dmg || 2, o.drain || 0.6);
+      floatText(W, p.cx, p.y - 16, (res && res.timeout ? '¡TIEMPO! ' : '') + (lost.hp ? '-' + lost.hp + ' ♥  ' : '') + '-' + lost.en + ' % EN', PAL.red);
+      if (o.onHit) o.onHit(W);
+      W.bark(guide(), '✗ Era «' + q.o[0] + '». ' + q.why, 'WORRIED', 6);
+    }
+    yield 0.6;
+  } finally {
+    // pase lo que pase (incluso un error), el jefe y el control vuelven a su estado
+    W.v.gSpecial = null; W.camFollow();
+    if (B.state === 'special') B.state = restore === 'special' ? 'quiz' : restore;
+    W.unlock();
+  }
+}
+function specialParticles(W, S) {
+  const c = S.origin(W);
+  if (Math.random() < 0.8) { const a = rand(0, Math.PI * 2), r = rand(40, 70); W.particles.spawn({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2, vy: -Math.sin(a) * r * 2, col: pick([S.col, PAL.white]), life: 0.45 }); }
+}
+// aura de carga (crece con S.charge) y rayo de descarga (en el mundo)
+function specialRender(g, W, B, S) {
+  if (!S) return;
+  const c = S.origin(W), k = S.charge, r = 12 + k * 40 + Math.sin(W.t * 20) * 2;
+  if (S.phase !== 'blast' || !S.blast) {
+    g.globalAlpha = 0.45 + 0.4 * k;
+    g.fillStyle = S.col;
+    for (let a = 0; a < Math.PI * 2; a += 0.12) g.fillRect(Math.round(c.x + Math.cos(a + W.t * 3) * r) - 1, Math.round(c.y + Math.sin(a + W.t * 3) * r) - 1, 3, 3);
+    g.fillStyle = PAL.white;
+    for (let a = 0; a < Math.PI * 2; a += 0.4) g.fillRect(Math.round(c.x + Math.cos(a - W.t * 5) * r * 0.6) - 1, Math.round(c.y + Math.sin(a - W.t * 5) * r * 0.6) - 1, 2, 2);
+    // núcleo de energía que crece y late
+    const cr = Math.round(3 + k * 7 + Math.sin(W.t * 14) * 1.5);
+    g.globalAlpha = 0.85; g.fillStyle = Math.floor(W.t * 10) % 2 ? PAL.white : S.col;
+    for (let yy = -cr; yy <= cr; yy++) { const ww = Math.round(Math.sqrt(cr * cr - yy * yy)); g.fillRect(Math.round(c.x) - ww, Math.round(c.y) + yy, ww * 2, 1); }
+    g.globalAlpha = 1;
+  }
+  const b = S.blast;
+  if (b) {
+    const f = easeOut(b.t), x1 = lerp(b.x0, b.x1, f), y1 = lerp(b.y0, b.y1, f);
+    const n = Math.max(2, Math.round(dist(b.x0, b.y0, x1, y1) / 3));
+    for (let i = 0; i <= n; i++) {
+      const q = i / n, x = lerp(b.x0, x1, q), y = lerp(b.y0, y1, q) + Math.sin(q * 20 + W.t * 40) * 3;
+      g.fillStyle = i % 2 ? S.col : PAL.white; g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 5, 5);
+    }
+  }
+}
+// en pantalla: viñeta de peligro y título «cinematográfico» mientras el jefe carga
+function drawSpecialFX(g, W) {
+  const S = W.v.gSpecial;
+  if (!S) return;
+  const pulse = 0.6 + 0.4 * Math.sin(W.t * 8), k = Math.max(0.3, S.charge);
+  g.fillStyle = S.col;
+  for (let i = 0; i < 5; i++) {
+    g.globalAlpha = (0.16 - i * 0.03) * pulse * k;
+    const d = i * 4;
+    g.fillRect(d, d, W_HUD_R - d * 2, 4); g.fillRect(d, H - d - 4, W_HUD_R - d * 2, 4);
+    g.fillRect(d, d + 4, 4, H - d * 2 - 8); g.fillRect(W_HUD_R - d - 4, d + 4, 4, H - d * 2 - 8);
+  }
+  g.globalAlpha = 1;
+  if (S.phase !== 'charge') return;
+  // título: entra desde la izquierda
+  const e = easeOut(clamp(S.t / 0.35, 0, 1)), title = '¡' + S.name + '!', tw = Font.measure(title, 2) + 24;
+  const x = Math.round(W_HUD_R / 2 - tw / 2 - (1 - e) * 120), y = 92;
+  g.fillStyle = '#08040C'; g.fillRect(x, y, tw, 40);
+  g.fillStyle = S.col; g.fillRect(x, y, tw, 2); g.fillRect(x, y + 38, tw, 2);
+  Font.draw(g, 'ATAQUE ESPECIAL' + (S.who ? ' · ' + S.who : ''), x + tw / 2, y + 3, PAL.grayL, { align: 'center' });
+  Font.draw(g, title, x + tw / 2, y + 13, Math.floor(W.t * 8) % 2 ? S.col : PAL.white, { align: 'center', s: 2 });
+}
+// Panel de la pregunta rápida: el mundo sigue visible (y el ataque cargando) mientras se responde.
+// Muestra también POR QUÉ falló la consulta: leer esa explicación ayuda a desviar el ataque.
+class QuickQuestionState {
+  constructor(q, o) {
+    this.overlay = true; this.updateBelow = true; this.q = q; this.o = o; this.t = 0; this.sel = 0; this.done_ = false; this.rects = [];
+    // opciones barajadas; la correcta es q.o[0]
+    this.order = q.o.map((t, i) => i).sort(() => Math.random() - 0.5);
+    this.why = o.why ? UI.wrap('✗ ' + o.why, 388).slice(0, 2) : [];
+    this.lines = UI.wrap(q.q, 388).slice(0, 3);
+  }
+  enter() { if (Game.world) { Game.world.barks.length = 0; Game.world.tipBox = null; } UI.captions.length = 0; }
+  update(dt) {
+    if (this.done_) return;
+    this.t += dt;
+    const S = this.o.special; if (S) { S.t += dt; S.charge = 0.35 + 0.65 * clamp(this.t / this.o.time, 0, 1); if (Game.world) specialParticles(Game.world, S); }
+    if (this.t >= this.o.time) { this.finish(-1, true); return; }
+    if (this.t < 0.35) return; // evita respuestas accidentales con la tecla de la acción anterior
+    const n = this.order.length;
+    if (Input.nav('left') || Input.nav('up')) { this.sel = (this.sel + n - 1) % n; AudioSys.play('ui_move'); }
+    if (Input.nav('right') || Input.nav('down')) { this.sel = (this.sel + 1) % n; AudioSys.play('ui_move'); }
+    for (let i = 0; i < n; i++) if (Input.keyPressed('Digit' + (i + 1)) || Input.keyPressed('Numpad' + (i + 1))) { this.finish(i); return; }
+    const r = this.rects.findIndex(b => UI.clicked(b.x, b.y, b.w, b.h));
+    if (r >= 0) { this.finish(r); return; }
+    if (Input.pressed('confirm') || Input.pressed('attack')) this.finish(this.sel);
+  }
+  finish(i, timeout) {
+    if (this.done_) return;
+    this.done_ = true;
+    const ok = i >= 0 && this.order[i] === 0;
+    AudioSys.play(ok ? 'correct' : 'wrong');
+    if (Game.top() === this) Game.pop();
+    if (this.o.onDone) this.o.onDone({ ok, timeout: !!timeout, choice: i >= 0 ? this.q.o[this.order[i]] : null });
+  }
+  get layout() {
+    const x = 36, w = 408, nw = this.why.length, nq = this.lines.length;
+    const h = 28 + (nw ? nw * 12 + 4 : 0) + nq * 12 + 4 + 15 + 18;
+    return { x, w, h, y: H - h - 6 };
+  }
+  render(g) {
+    const col = this.o.col || PAL.red, L = this.layout, x = L.x, y = L.y, w = L.w;
+    UI.panel(g, x, y, w, L.h, { border: col, title: 'PREGUNTA RÁPIDA', titleCol: col, fill: '#0A0610' });
+    Font.draw(g, UI.fit('¡' + this.o.name + '! Responde antes de que descargue', w - 60), x + 10, y + 6, col);
+    const left = Math.max(0, this.o.time - this.t), f = left / this.o.time;
+    UI.bar(g, x + 10, y + 20, w - 60, 5, f, f < 0.3 ? PAL.red : PAL.amber);
+    Font.draw(g, Math.ceil(left) + ' s', x + w - 10, y + 15, f < 0.3 ? PAL.red : PAL.amber, { align: 'right' });
+    let ty = y + 28;
+    if (this.why.length) { Font.drawLines(g, this.why, x + 10, ty, PAL.grayL); ty += this.why.length * 12 + 4; }
+    Font.drawLines(g, this.lines, x + 10, ty, PAL.white, { hl: col });
+    const n = this.order.length, bw = Math.floor((w - 20 - (n - 1) * 8) / n), by = ty + this.lines.length * 12 + 4;
+    this.rects = [];
+    this.order.forEach((oi, i) => {
+      const bx = x + 10 + i * (bw + 8);
+      UI.button(g, bx, by, bw, 15, (i + 1) + '. ' + UI.fit(this.q.o[oi], bw - 24), i === this.sel, { color: col });
+      this.rects.push({ x: bx, y: by, w: bw, h: 15 });
+    });
+    UI.keyHints(g, [['←→', 'Elegir'], [Input.label('interact'), 'Responder'], ['1-' + n, 'Directo']], x + w / 2, by + 19, 'center');
+  }
 }
 
 
@@ -12139,6 +12410,149 @@ const GUARDIAN_SPECS = {
     chip: 'raid'
   }
 };
+// ---------------------------------------------------------------- ATAQUE ESPECIAL: PREGUNTAS RÁPIDAS ----
+// Si se falla una consulta, el guardián carga su ataque especial y lanza una PREGUNTA RÁPIDA:
+// · linked[i]: la MISMA idea que la consulta qs[i] vista desde otro ángulo (práctica de recuperación
+//   inmediata tras leer por qué se falló);
+// · pool: preguntas generales de la región, para un segundo fallo en la misma consulta.
+// Formato: [pregunta, [correcta, …distractores], por qué]. Además, la vida de cada guardián se triplica.
+const GUARDIAN_QUICK = {
+  bootloop: {
+    special: 'REINICIO INFINITO',
+    linked: [
+      ['¿Qué etapa va justo ANTES de SALIDA?', ['MEMORIA', 'PROCESO', 'ENTRADA'], 'El orden es ENTRADA → PROCESO → MEMORIA → SALIDA.'],
+      ['¿Un MONITOR es entrada o salida?', ['SALIDA', 'ENTRADA'], 'El monitor muestra resultados: es SALIDA.'],
+      ['¿Un sistema operativo es...?', ['SOFTWARE', 'HARDWARE'], 'El SO son programas: instrucciones, no piezas físicas.'],
+      ['¿Cómo se llama la autoprueba del firmware al encender?', ['POST', 'PING', 'DMA'], 'POST (Power-On Self-Test) revisa el hardware antes de arrancar.']
+    ],
+    pool: [
+      ['¿Un MICRÓFONO es entrada o salida?', ['ENTRADA', 'SALIDA'], 'Capta sonido y lo lleva al sistema: ENTRADA.'],
+      ['¿Una IMPRESORA es entrada o salida?', ['SALIDA', 'ENTRADA'], 'Saca resultados al papel: SALIDA.'],
+      ['¿Qué parte del computador se puede TOCAR?', ['HARDWARE', 'SOFTWARE'], 'El hardware es físico; el software son instrucciones.']
+    ]
+  },
+  surge: {
+    special: 'DESCARGA DE 12 V',
+    linked: [
+      ['El VRM entrega a la CPU un voltaje...', ['BAJO Y ESTABLE', 'ALTO Y VARIABLE', 'DE 220 V'], 'La CPU necesita poco voltaje y muy estable: ese es el trabajo del VRM.'],
+      ['¿Qué se instala en una ranura DIMM?', ['RAM', 'GPU', 'SSD'], 'DIMM es la ranura de los módulos de memoria RAM.'],
+      ['El chipset funciona como un...', ['INTERCAMBIADOR', 'DISIPADOR', 'ALMACÉN'], 'Conecta periféricos con la CPU, como un intercambiador de tráfico.'],
+      ['¿Cuántos carriles tiene una ranura PCIe x16?', ['16', '4', '1'], 'x16 significa 16 carriles de datos en paralelo.']
+    ],
+    pool: [
+      ['¿Dónde se coloca la CPU en la placa base?', ['EN EL SOCKET', 'EN UN DIMM', 'EN EL SATA'], 'La CPU va en el socket, rodeada por el VRM.'],
+      ['¿Qué convierte la corriente del enchufe para el PC?', ['LA FUENTE', 'EL CHIPSET', 'LA RAM'], 'La fuente de alimentación entrega 12 V, 5 V y 3,3 V.'],
+      ['Un disco SATA se conecta al...', ['PUERTO SATA', 'SOCKET', 'DIMM'], 'Los discos SATA van al puerto SATA de la placa.']
+    ]
+  },
+  overclock: {
+    special: 'PULSO DE 9 GHZ',
+    linked: [
+      ['¿Qué etapa va ANTES de DECODE?', ['FETCH', 'EXECUTE', 'WRITE BACK'], 'Primero FETCH trae la instrucción; después DECODE la interpreta.'],
+      ['¿Qué registro guarda la instrucción ACTUAL?', ['IR', 'PC', 'ALU'], 'El IR (registro de instrucción) la guarda mientras se decodifica.'],
+      ['Después de FETCH, el PC...', ['AVANZA', 'SE BORRA', 'SE APAGA'], 'El PC avanza para apuntar a la siguiente instrucción.'],
+      ['Un reloj de 3 GHz da 3 mil millones de... por segundo.', ['CICLOS', 'BYTES', 'VOLTIOS'], 'GHz: miles de millones de ciclos de reloj por segundo.']
+    ],
+    pool: [
+      ['¿Cuál es la última etapa del ciclo de instrucción?', ['WRITE BACK', 'FETCH', 'DECODE'], 'WRITE BACK guarda el resultado; luego el ciclo vuelve a empezar.'],
+      ['¿En qué etapa calcula la ALU?', ['EXECUTE', 'FETCH', 'DECODE'], 'En EXECUTE se realiza la operación: ahí trabaja la ALU.'],
+      ['¿Qué hace la etapa DECODE?', ['INTERPRETA', 'CALCULA', 'GUARDA'], 'DECODE interpreta la instrucción: qué operación y con qué datos.']
+    ]
+  },
+  overflow: {
+    special: 'DESBORDE TOTAL',
+    linked: [
+      ['10 en binario vale...', ['2', '10', '1'], 'En base 2: 1×2 + 0×1 = 2.'],
+      ['1 OR 0 =', ['1', '0'], 'OR da 1 si al menos una entrada es 1.'],
+      ['0010 + 0010 =', ['0100', '0011', '0110'], '2 + 2 = 4, y 4 en binario es 0100.'],
+      ['El ACARREO de un semisumador es una compuerta...', ['AND', 'XOR', 'NOT'], 'Sólo hay acarreo si ambos bits son 1: eso es AND.']
+    ],
+    pool: [
+      ['NOT 1 =', ['0', '1'], 'NOT invierte el bit: 1 pasa a 0.'],
+      ['1 XOR 1 =', ['0', '1', '2'], 'XOR da 1 sólo si los bits son distintos; iguales dan 0.'],
+      ['Con 4 bits, el mayor número sin signo es...', ['15', '16', '8'], '1111 = 8 + 4 + 2 + 1 = 15. El 16 ya desborda.']
+    ]
+  },
+  thrash: {
+    special: 'SWAP MASIVO',
+    linked: [
+      ['¿Cuál es la memoria más LENTA?', ['SSD', 'RAM', 'CACHÉ'], 'El almacenamiento (SSD o HDD) es el nivel más lento de la jerarquía.'],
+      ['¿La RAM es volátil?', ['SÍ', 'NO'], 'Sí: sin energía se borra. Por eso se guarda en el SSD.'],
+      ['¿Dónde está la caché L1?', ['EN LA CPU', 'EN EL SSD', 'EN LA FUENTE'], 'La L1 está dentro del núcleo: por eso es tan rápida.'],
+      ['Si el dato SÍ está en la caché, es un...', ['CACHE HIT', 'CACHE MISS', 'DEADLOCK'], 'HIT es un acierto: el dato llega rapidísimo.']
+    ],
+    pool: [
+      ['Cuanto más cerca de la CPU, la memoria es más...', ['RÁPIDA', 'LENTA', 'BARATA'], 'Cerca: rápida pero pequeña y cara. Lejos: lenta pero grande.'],
+      ['¿El SSD conserva los datos sin energía?', ['SÍ', 'NO'], 'Sí: el SSD es memoria no volátil.'],
+      ['¿Qué caché es más grande?', ['L3', 'L1'], 'La L3 es más grande y más lenta; la L1, pequeña y rapidísima.']
+    ]
+  },
+  busjam: {
+    special: 'CHOQUE DE CARRILES',
+    linked: [
+      ['El bus de DIRECCIONES indica...', ['DÓNDE', 'QUÉ VALOR', 'CUÁNDO'], 'Direcciones = DÓNDE leer o escribir.'],
+      ['La señal de reloj viaja por el bus de...', ['CONTROL', 'DATOS', 'DIRECCIONES'], 'Reloj, leer, escribir e IRQ son señales de control.'],
+      ['El bus de DATOS lleva...', ['EL VALOR', 'LA DIRECCIÓN', 'LA ORDEN'], 'Datos = el QUÉ: el valor que se lee o se escribe.'],
+      ['Un bus de 64 bits frente a uno de 32 mueve por ciclo...', ['EL DOBLE', 'LA MITAD', 'LO MISMO'], '64 carriles mueven el doble de bits a la vez.']
+    ],
+    pool: [
+      ['¿Cuántos buses forman el bus del sistema?', ['3', '2', '5'], 'Tres: datos, direcciones y control.'],
+      ['La orden ESCRIBIR viaja por el bus de...', ['CONTROL', 'DATOS', 'DIRECCIONES'], 'Las órdenes van por el bus de control.'],
+      ['Con 8 líneas de dirección se pueden señalar...', ['256 SITIOS', '8 SITIOS', '16 SITIOS'], '2 elevado a 8 = 256 direcciones distintas.']
+    ]
+  },
+  irqstorm: {
+    special: 'IRQ NO ENMASCARABLE',
+    linked: [
+      ['¿Qué decide qué IRQ se atiende primero?', ['LA PRIORIDAD', 'LA LLEGADA', 'EL AZAR'], 'Se atiende primero la interrupción de mayor prioridad.'],
+      ['Tras atender la interrupción, la CPU...', ['CONTINÚA', 'SE REINICIA', 'SE APAGA'], 'Restaura su estado y continúa donde lo dejó.'],
+      ['¿Qué gasta MENOS CPU al esperar un dispositivo?', ['INTERRUPCIÓN', 'POLLING'], 'La interrupción avisa sola; el polling pregunta sin parar.'],
+      ['Al terminar la copia, el DMA avisa con una...', ['INTERRUPCIÓN', 'CACHÉ', 'ALU'], 'El DMA lanza una interrupción cuando acaba la transferencia.']
+    ],
+    pool: [
+      ['La rutina que atiende una interrupción se llama...', ['ISR', 'DMA', 'ALU'], 'ISR: Interrupt Service Routine (rutina de servicio).'],
+      ['Pulsar una tecla genera una...', ['INTERRUPCIÓN', 'CACHÉ', 'OVERFLOW'], 'El teclado avisa a la CPU con una IRQ.'],
+      ['Una interrupción es...', ['UN AVISO', 'UN CABLE', 'UN DISCO'], 'Un aviso a la CPU: «atiéndeme», sin que tenga que preguntar.']
+    ]
+  },
+  deadlock: {
+    special: 'ESPERA ETERNA',
+    linked: [
+      ['Para romper un deadlock, alguien debe...', ['CEDER', 'ESPERAR MÁS', 'ACELERAR'], 'Si un proceso libera su recurso, la espera circular se rompe.'],
+      ['Si TODO el trabajo es secuencial, 8 núcleos dan...', ['1×', '8×', '4×'], 'Sin parte paralela, más núcleos no ayudan: 1×.'],
+      ['GPU al 100 % y CPU al 30 %: el cuello de botella es...', ['LA GPU', 'LA CPU', 'LA RAM'], 'El componente saturado es el que limita al resto.'],
+      ['El throttling se evita mejor con...', ['REFRIGERACIÓN', 'MÁS RAM', 'MÁS DISCO'], 'Menos calor: la CPU no necesita bajar su frecuencia.']
+    ],
+    pool: [
+      ['Varios núcleos trabajando a la vez es...', ['PARALELISMO', 'POLLING', 'OVERFLOW'], 'Paralelismo: repartir el trabajo entre varios núcleos.'],
+      ['¿Todo programa se acelera igual con más núcleos?', ['NO', 'SÍ'], 'No: la parte secuencial pone el límite (ley de Amdahl).'],
+      ['Un recurso que sólo uno puede usar a la vez se protege con un...', ['CERROJO', 'BUS', 'PÍXEL'], 'Un cerrojo (lock o mutex) da acceso exclusivo.']
+    ]
+  },
+  panic: {
+    special: 'VOLCADO DE NÚCLEO',
+    linked: [
+      ['¿Qué reparte el planificador del kernel?', ['TURNOS DE CPU', 'VOLTAJE', 'PÍXELES'], 'Reparte turnos de CPU entre los procesos.'],
+      ['Seguir un puntero nulo provoca...', ['UN ERROR', 'MÁS VELOCIDAD', 'UNA COPIA'], 'Apunta a nada: el programa falla al seguirlo.'],
+      ['Restaurar el contexto permite al proceso...', ['CONTINUAR', 'EMPEZAR DE 0', 'APAGARSE'], 'Con sus registros y su estado, sigue exactamente donde iba.'],
+      ['El kernel es el núcleo del...', ['SO', 'BIOS', 'CHIPSET'], 'El kernel es el núcleo del sistema operativo (SO).']
+    ],
+    pool: [
+      ['Un «kernel panic» es un error...', ['IRRECUPERABLE', 'LEVE', 'DE SONIDO'], 'El kernel no puede seguir de forma segura y se detiene.'],
+      ['El SO habla con cada dispositivo mediante...', ['DRIVERS', 'PÍXELES', 'VENTILADORES'], 'Los drivers traducen entre el SO y cada dispositivo.'],
+      ['¿Qué es un proceso?', ['PROGRAMA ACTIVO', 'UN CABLE', 'UN PUERTO'], 'Un programa en ejecución, con su memoria y su estado.']
+    ]
+  }
+};
+const quickQ = a => ({ q: a[0], o: a[1], why: a[2] });
+for (const id in GUARDIAN_SPECS) {
+  const sp = GUARDIAN_SPECS[id], Q = GUARDIAN_QUICK[id];
+  sp.hp *= 3; // el triple de vida: más fases de combate y tres consultas (75 %, 50 %, 25 %)
+  if (!Q) continue;
+  sp.special = Q.special;
+  sp.qs.forEach((q, i) => { if (Q.linked[i]) q.quick = quickQ(Q.linked[i]); });
+  sp.quickPool = Q.pool.map(quickQ);
+}
 // La visibilidad del PÁNICO se respeta al dibujar (invisible: sólo un rastro de «0x0000»)
 const _gRender = Guardian.prototype.render;
 Guardian.prototype.render = function (g, W) {
@@ -12475,7 +12889,8 @@ for (const e of CODEX) CODEX_BY_ID[e.id] = e;
 ACHIEVEMENTS.push(
   { id: 'guardians', n: 'Guardián de guardianes', d: 'Vence a los nueve guardianes de región.' },
   { id: 'combo5', n: 'Multihilo', d: 'Encadena un combo de 5 enemigos.' },
-  { id: 'bestiary', n: 'Analista de amenazas', d: 'Completa el bestiario de amenazas comunes.' }
+  { id: 'bestiary', n: 'Analista de amenazas', d: 'Completa el bestiario de amenazas comunes.' },
+  { id: 'sage', n: 'Consulta impecable', d: 'Vence a un jefe sin fallar ninguna de sus consultas.' }
 );
 const _achCheck = Achievements.check;
 Achievements.check = function () {

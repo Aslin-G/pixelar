@@ -24,7 +24,7 @@ class Camera {
   }
   update(dt, p) {
     let tx, ty;
-    if (this.lockT) { tx = this.lockT.x - W / 2; ty = this.lockT.y - H / 2; }
+    if (this.lockT && Number.isFinite(this.lockT.x) && Number.isFinite(this.lockT.y)) { tx = this.lockT.x - W / 2; ty = this.lockT.y - H / 2; }
     else {
       this.look = lerp(this.look, p.facing * 28, 1 - Math.exp(-dt * 2.5));
       tx = p.x + p.w / 2 - W / 2 + this.look;

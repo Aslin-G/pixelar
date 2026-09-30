@@ -28,6 +28,7 @@ class Player {
     this.near = null; this.platform = null; this.wasGrounded = false; this.trail = [];
   }
   get cx() { return this.x + this.w / 2; }
+  get cy() { return this.y + this.h / 2; }
   update(W, dt, control) {
     this.prevY = this.y; // para detectar pisotones (venía desde arriba)
     for (const k in this.cds) this.cds[k] = Math.max(0, this.cds[k] - dt);
@@ -168,6 +169,25 @@ class Player {
       return;
     }
     if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
+  }
+  // ATAQUE ESPECIAL de un jefe (pregunta rápida fallada): ocurre dentro de su cinemática, así que ignora
+  // el modo calma; quita salud y energía, pero nunca el último ♥. Devuelve { hp, en } (lo perdido).
+  specialHit(W, dmg, frac) {
+    if (this.dead) return { hp: 0, en: 0 };
+    const assist = Settings.data.assist, maxE = Progression.maxEnergy();
+    const en = Math.min(this.energy, maxE * frac * (assist ? 0.5 : 1));
+    this.energy -= en;
+    this.hurtT = 0.4; this.invuln = Math.max(this.invuln, 1.5);
+    if (this.grounded && !this.climbing) this.vy = -140;
+    AudioSys.play('hurt');
+    if (this.postShield) {
+      this.postShield = false; dmg--;
+      AudioSys.play('shield'); floatText(W, this.cx, this.y - 26, 'POST: ABSORBIÓ 1 ♥', PAL.cyan);
+    }
+    let hp = 0;
+    if (!assist) { hp = clamp(Math.min(dmg, this.hp - 1), 0, dmg); this.hp -= hp; }
+    if (hp) { W.damageTaken = true; if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5); }
+    return { hp, en: Math.round(en / maxE * 100) };
   }
   heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }
   dash(dir) { this.dashT = 0.16; this.dashTarget = null; this.vx = dir * 330; this.invuln = Math.max(this.invuln, 0.2); }

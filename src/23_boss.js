@@ -87,24 +87,28 @@ QM.register(BOSS_CH.concat([BALANCE_CH]));
 class CascadeBoss {
   constructor(x, y) {
     this.x = x; this.y = y; this.w = 120; this.h = 80; this.t = 0; this.layer = 3; this.dead = false; this.kind = 'cascade'; this.alwaysUpdate = true;
-    this.baseY = y; this.exposed = 0; this.hitsNeed = 3; this.hits = 0; this.fireT = 3; this.alpha = 0; this.enemyish = true; this.fade = 1;
+    this.baseY = y; this.exposed = 0; this.exposeT = 9; this.hitsNeed = 9; this.hits = 0; this.fireT = 3; this.alpha = 0; this.enemyish = true; this.fade = 1;
     this.blocks = [];
     for (let i = 0; i < 46; i++) this.blocks.push({ x: rand(-54, 54), y: rand(-34, 34), w: randi(4, 12), h: randi(3, 8), c: pick([PAL.red, PAL.violet, '#A02B38', PAL.white, '#5E3F9E']), s: rand(0.5, 2) });
   }
   get coreX() { return this.x; }
   get coreY() {
     if (this.exposed <= 0) return this.baseY;
-    const f = this.exposed < 0.8 ? this.exposed / 0.8 : clamp((6.5 - this.exposed) / 0.8, 0, 1);
+    const f = this.exposed < 0.8 ? this.exposed / 0.8 : clamp((this.exposeT - this.exposed) / 0.8, 0, 1);
     return lerp(this.baseY, this.floorY, easeInOut(f));
   }
   update(W, dt) {
     this.t += dt;
     this.alpha = approach(this.alpha, this.fade, dt);
     const B = W.v.boss;
-    if (!B || !B.active) return;
+    if (!B || !B.active || W.calm) return; // mientras se lee o se responde, CASCADE no acumula disparos
     if (this.exposed > 0) {
       this.exposed -= dt;
-      if (this.exposed <= 0) { this.hits = 0; W.bark('NULL', 'El núcleo de CASCADE se recompone. Vuelve a exponerlo.', null, 3); }
+      if (this.exposed <= 0) {
+        this.hits = 0;
+        if (B.state === 'core') B.state = 'console'; // la consola vuelve a estar disponible (antes quedaba bloqueada)
+        W.bark('NULL', 'El núcleo de CASCADE se recompone. Vuelve a exponerlo desde la consola.', null, 3);
+      }
       return;
     }
     this.fireT -= dt;
@@ -120,7 +124,7 @@ class CascadeBoss {
       AudioSys.play('glitch');
     }
   }
-  expose(W) { this.exposed = 6.5; this.hits = 0; this.floorY = W.player.y + 7; AudioSys.play('boss', { caption: '[CASCADE se desploma]' }); W.shake(4, 0.5); floatText(W, this.x, this.baseY + 40, '¡NÚCLEO EXPUESTO!', PAL.gold); }
+  expose(W, pre = 0) { this.exposed = this.exposeT; this.hits = Math.min(pre, this.hitsNeed - 1); this.floorY = W.player.y + 7; AudioSys.play('boss', { caption: '[CASCADE se desploma]' }); W.shake(4, 0.5); floatText(W, this.x, this.baseY + 40, '¡NÚCLEO EXPUESTO!', PAL.gold); }
   tryHit(W, px, py, r) {
     if (this.exposed <= 0) return false;
     const cy = this.coreY;
@@ -160,6 +164,7 @@ class CascadeBoss {
     if (exp) { Font.draw(g, 'NÚCLEO ' + this.hits + '/' + this.hitsNeed, cx, coreY - 22, PAL.gold, { align: 'center' }); if (Math.floor(this.t * 6) % 2) Font.draw(g, '▼', cx, coreY - 34, PAL.gold, { align: 'center' }); }
     if (!calm && Math.random() < 0.2) W.particles.spawn({ x: cx + rand(-50, 50), y: cy + rand(-30, 30), vy: 60, col: pick([PAL.red, PAL.violet]), life: 0.6, kind: 'glitch' });
     g.globalAlpha = 1;
+    if (W.v.gSpecial) specialRender(g, W, this, W.v.gSpecial);
   }
 }
 class BossConsole extends Ent {
@@ -180,6 +185,31 @@ class BossConsole extends Ent {
 }
 ENTITY_TYPES.bconsole = BossConsole;
 
+// Preguntas rápidas del ATAQUE ESPECIAL de CASCADE: dos por subsistema; después, las de su guardián
+const CASCADE_QUICK = [
+  [['¿Qué etapa escribe el resultado en el registro?', ['WRITE BACK', 'FETCH', 'DECODE'], 'WRITE BACK guarda el resultado (en SUB R3, R1, R2: en R3).'],
+    ['En SUB R3, R1, R2, ¿qué calcula la ALU?', ['R1 − R2', 'R3 − R1', 'R1 + R2'], 'En EXECUTE la ALU calcula R1 − R2; WRITE BACK lo guarda en R3.']],
+  [['0 XOR 1 =', ['1', '0'], 'XOR da 1 cuando las entradas son distintas.'],
+    ['¿Qué compuerta da la SUMA de un semisumador?', ['XOR', 'AND', 'OR'], 'SUMA = XOR; ACARREO = AND.']],
+  [['Un dato que se usa mucho conviene tenerlo en...', ['LA CACHÉ', 'EL SSD', 'LA NUBE'], 'La caché guarda cerca lo que se usa a menudo.'],
+    ['Tras un CACHE MISS, el dato se busca en...', ['LA RAM', 'LOS REGISTROS', 'LA GPU'], 'Si no está en la caché, hay que ir a la RAM, más lenta.']],
+  [['El valor que se escribe viaja por el bus de...', ['DATOS', 'CONTROL', 'DIRECCIONES'], 'El valor es un dato: bus de datos.'],
+    ['«¿DÓNDE escribo?» lo responde el bus de...', ['DIRECCIONES', 'DATOS', 'CONTROL'], 'Direcciones = dónde; datos = qué; control = cuándo y cómo.']],
+  [['IRQ del reloj (prioridad alta) e IRQ del ratón (baja): ¿cuál se atiende primero?', ['EL RELOJ', 'EL RATÓN'], 'Manda la prioridad, no el orden de llegada.'],
+    ['Antes de atender una IRQ, la CPU...', ['GUARDA SU ESTADO', 'SE APAGA', 'BORRA LA RAM'], 'Guardar, atender, restaurar y continuar.']],
+  [['Mejorar algo que NO es el cuello de botella...', ['NO AYUDA', 'LO DUPLICA', 'LO APAGA'], 'El límite sigue ahí: hay que atacar el cuello de botella.'],
+    ['Subir la frecuencia sin refrigerar provoca...', ['THROTTLING', 'MÁS RAM', 'UN BACKUP'], 'El calor obliga a la CPU a frenarse: throttling.']]
+];
+const CASCADE_GUARD = ['overclock', 'overflow', 'thrash', 'busjam', 'irqstorm', 'deadlock'];
+function cascadeQuick(B, ph) {
+  B.quickUsed = B.quickUsed || {};
+  const n = B.quickUsed[ph] = (B.quickUsed[ph] || 0) + 1;
+  const own = CASCADE_QUICK[ph] || [];
+  if (n <= own.length) { const a = own[n - 1]; return { q: a[0], o: a[1], why: a[2] }; }
+  const sp = GUARDIAN_SPECS[CASCADE_GUARD[ph]], pool = (sp && sp.quickPool) || [];
+  if (pool.length) return pool[(n - own.length - 1) % pool.length];
+  const a = own[(n - 1) % own.length]; return { q: a[0], o: a[1], why: a[2] };
+}
 function makeBossController(W) {
   const B = {
     active: false, phase: 0, state: 'idle', done: [false, false, false, false, false, false], stability: 100, console: null, shieldEvent: null,
@@ -206,12 +236,27 @@ function makeBossController(W) {
     },
     useConsole(W2, c) {
       const self = this;
+      if (this.state !== 'console') return;
       W2.run(function* () {
-        const r = yield* W2.challenge(BOSS_CH[self.phase], { source: 'boss', title: 'EMERGENCIA · ' + BOSS_PHASES[self.phase].n, noVariant: false });
+        const ph = self.phase;
+        const r = yield* W2.challenge(BOSS_CH[ph], { source: 'boss', title: 'EMERGENCIA · ' + BOSS_PHASES[ph].n, noVariant: false });
         if (r.ok) {
+          // ¿hubo errores en la consola? CASCADE aprovecha la brecha: ATAQUE ESPECIAL + pregunta rápida
+          let pre = 0;
+          if (!r.firstTry && !r.missing && !W2.player.dead) {
+            const C = W2.v.cascade;
+            yield* bossSpecial(W2, {
+              boss: self, restore: 'console', name: 'CASCADA DE FALLOS', who: 'CASCADE', col: PAL.red, concept: BOSS_PHASES[ph].concept, chId: 'boss_p' + ph,
+              quick: cascadeQuick(self, ph), why: 'La consola resistió un intento fallido y CASCADE aprovecha la brecha.',
+              origin: () => ({ x: C.x, y: C.baseY + 34 }), // la base de la masa (donde nacen sus tentáculos)
+              onDeflect() { pre = 3; self.stability = Math.min(100, self.stability + 10); },
+              onHit() { self.stability = Math.max(0, self.stability - 10); }
+            });
+          }
           self.state = 'core';
           W2.sfx('correct');
-          W2.v.cascade.expose(W2);
+          W2.v.cascade.expose(W2, pre);
+          if (pre) floatText(W2, W2.v.cascade.x, W2.v.cascade.baseY + 56, 'EL ATAQUE DAÑÓ SU NÚCLEO: ' + pre + '/' + W2.v.cascade.hitsNeed, PAL.cyan);
           W2.tip('core', '¡El núcleo de CASCADE está expuesto! Golpéalo con DEBUG PING [' + Input.label('attack') + '] o ALU PULSE.');
         } else { self.stability = Math.max(0, self.stability - 10); }
       }, 'console');

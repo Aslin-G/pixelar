@@ -70,7 +70,9 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
 - Epílogo con la presentación «Análisis de un fallo sistémico», la **lección final**, la última imagen
   del Blueprint, créditos, escena poscréditos (312 ms) y escena extra si se reúnen las letras N‑E‑X‑U‑S.
 - **Jefe CASCADE** en 6 fases (CPU, ALU, caché, buses, interrupciones, rendimiento): cada fase se
-  estabiliza resolviendo su consola y luego se golpea el núcleo expuesto; incluye un evento con
+  estabiliza resolviendo su consola y luego se golpea el núcleo expuesto (9 impactos en 9 s; si se
+  recompone, la consola vuelve a activarse). Si la consola no se resolvió a la primera, CASCADE lanza
+  su **ATAQUE ESPECIAL** con pregunta rápida (desviarlo deja su núcleo ya dañado 3/9); incluye un evento con
   INTERRUPT SHIELD, la decisión DELETE NULL / INTERRUMPIR, un BUS BRIDGE final y un desafío de
   equilibrio con 4 variables acopladas.
 
@@ -107,9 +109,18 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
   fallo del concepto de su región —BOOTLOOP, SOBRETENSIÓN, RELOJ DESBOCADO, DESBORDAMIENTO, THRASHING,
   COLISIÓN DE BUS, TORMENTA IRQ, ABRAZO MORTAL y PÁNICO DEL KERNEL—, con ataques telegrafiados (el «!»
   avisa) que se vuelven más rápidos por fases. CASCADE sigue siendo el jefe final.
-  - **Consultas en pleno combate**: al perder vida, el guardián se blinda y pregunta; se responde
-    **disparando** (o con E) al orbe con la respuesta correcta. Acertar lo deja vulnerable (daño doble);
-    fallar sólo elimina ese orbe y explica por qué. Las respuestas cuentan para el modelo de dominio.
+  - **Consultas en pleno combate**: cada guardián tiene el triple de vida y, al bajar al 75 %, 50 % y
+    25 %, se blinda y pregunta; se responde **disparando** (o con E) al orbe con la respuesta correcta.
+    Acertar lo deja vulnerable 6 s (daño doble). Las respuestas cuentan para el modelo de dominio.
+  - **Ataque especial con pregunta rápida**: si se elige un orbe incorrecto, el guardián carga su ataque
+    (cinemática con su nombre: REINICIO INFINITO, DESCARGA DE 12 V, PULSO DE 9 GHZ…) y, mientras carga,
+    lanza una **pregunta rápida** con cuenta atrás sobre la misma idea, vista desde otro ángulo; el panel
+    muestra por qué la respuesta anterior era incorrecta, así que leer esa explicación ayuda a salvarse.
+    Acertar **desvía el ataque** contra el guardián (le quita vida sin saltarse la siguiente consulta);
+    fallar o agotar el tiempo hace que golpee a BYTE: −2 ♥ (nunca el último; el chip POST absorbe uno)
+    y −60 % de energía. Se responde con ←→ y E, con las teclas 1–3 o con el ratón o el dedo; en modo
+    asistido hay un 50 % más de tiempo y no se pierde salud. Vencer a un jefe sin fallar ninguna
+    consulta da +40 XP y el logro **Consulta impecable**.
   - **Debilidad = lo que acabas de aprender**: RELOJ DESBOCADO se intercepta con FETCH DASH,
     DESBORDAMIENTO cae con ALU PULSE (y se aturde al pasar de 255), THRASHING con CACHE BOOST, COLISIÓN DE BUS
     exige enrutar su carga con BUS BRIDGE, TORMENTA IRQ sólo es vulnerable interrumpida, ABRAZO MORTAL
@@ -132,7 +143,7 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
   palanca RUN dicen cuál es y dónde quedó; como red de seguridad final, **Pausa → REINICIAR NIVEL**
   devuelve el nivel al estado con el que se entró (el aprendizaje se conserva).
 - 25 misiones (10 principales + 15 secundarias), 18 Memory Fragments, 5 letras ocultas,
-  5 terminales históricas (Von Neumann, Lovelace, Shannon, Hopper, Turing), 16 logros, XP y niveles
+  5 terminales históricas (Von Neumann, Lovelace, Shannon, Hopper, Turing), 17 logros, XP y niveles
   de BYTE con mejoras visuales.
 
 ### Presentación y accesibilidad
@@ -207,11 +218,11 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `validate.js` | Mapas (anchos, leyendas, inicio, fragmentos, ids repetidos), referencias a desafíos y Codex, cobertura de glifos y alcanzabilidad aproximada de salidas y objetos |
 | `challenges.js` | Los 728 casos (desafíos, generadores y variantes): render, pistas, reinicio y que la solución guiada sea correcta |
 | `smoke.js` | Recorrido con teclado real: título → prólogo → nivel → terminal → pausa y submenús → CONTINUE → modo docente |
-| `playtest.js` | Bot que juega la historia completa (niveles 00–09, los nueve guardianes con la contramedida de cada uno, jefe, epílogo, informe y posjuego): en modo estricto sólo actúa sobre lo alcanzable desde donde está el jugador, combate con la contramedida prevista de cada enemigo, comprueba las rutas cargando bloques y hace un barrido final de accesibilidad por nivel |
+| `playtest.js` | Bot que juega la historia completa (niveles 00–09, los nueve guardianes con la contramedida de cada uno —fallando a propósito su primera consulta para provocar el ataque especial y alternando aciertos y fallos en la pregunta rápida—, jefe, epílogo, informe y posjuego): en modo estricto sólo actúa sobre lo alcanzable desde donde está el jugador, combate con la contramedida prevista de cada enemigo, comprueba las rutas cargando bloques y hace un barrido final de accesibilidad por nivel |
 | `overlap.js` | Detector de texto superpuesto: registra cada texto dibujado (ignorando lo tapado por paneles) en menús, desafíos, diálogos, cinemáticas y un barrido de cámara por todos los niveles |
 | `backtrack.js` | Vuelta atrás con la **física real** del jugador: simula cada movimiento (caminar, saltos con carrerilla, desde el borde o con giro en el aire, escaleras, plataformas móviles, FETCH DASH) y construye el grafo de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos. Repite el análisis con un margen (saltos ~10 % más bajos) para que volver nunca dependa de un salto perfecto |
 | `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL, módulos que vuelven a su sitio, puertas que siguen abiertas tras un checkpoint y la pista del Distrito de E/S |
-| `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos y consulta respondida con E) |
+| `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado, último ♥, POST, modo asistido y CASCADE (sin bloqueo al recomponerse) |
 | `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red |
 
 ---
@@ -256,8 +267,11 @@ Decisiones propias tomadas al llevar los documentos de diseño a un juego jugabl
     energía refuerza el tono del juego; se reaparece en el último checkpoint.
 15. **Guardianes que preguntan**: los jefes de región no sólo se esquivan: en mitad del combate hacen
     una CONSULTA y la respuesta se elige disparando al orbe correcto. Así la pregunta forma parte de la
-    acción en lugar de detenerla, y un error no castiga con una derrota: sólo descarta esa opción y
-    explica por qué.
+    acción en lugar de detenerla, y un error no castiga con una derrota: descarta esa opción, explica
+    por qué y abre una segunda oportunidad inmediata (la pregunta rápida del ataque especial) sobre la
+    misma idea. Es práctica de recuperación justo después de la retroalimentación: el error se convierte
+    en tensión de juego y en aprendizaje a la vez, y acertar tiene una recompensa visible (el ataque
+    vuelve contra el jefe).
 16. **La memoria de firmware como la RAM**: los chips que dan los guardianes compiten por una
     capacidad limitada, igual que los programas por la memoria. Incluso el OVERCLOCK tiene su coste
     (más velocidad, menos energía): nada es gratis, que es la lección de toda la historia.

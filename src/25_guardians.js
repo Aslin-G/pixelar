@@ -1,8 +1,11 @@
 // =============================================================================
 // GUARDIANES DE REGIÓN — un jefe al final de cada nivel (00–08). CASCADE sigue siendo el jefe final.
 // · Cada guardián encarna un FALLO del concepto de su región y tiene patrones telegrafiados.
-// · CONSULTA: al perder vida se blinda y pregunta; se responde DISPARANDO (o con E) al orbe correcto.
-//   Acertar lo deja VULNERABLE (daño doble); fallar sólo elimina ese orbe y explica por qué.
+// · CONSULTA: al perder vida (75 %, 50 % y 25 %) se blinda y pregunta; se responde DISPARANDO (o con
+//   E) al orbe correcto. Acertar lo deja VULNERABLE (daño doble).
+// · ATAQUE ESPECIAL: si la respuesta es incorrecta, el guardián carga un ataque (cinemática) y, mientras
+//   carga, lanza una PREGUNTA RÁPIDA sobre la misma idea. Acertarla desvía el ataque contra él; fallarla
+//   (o agotar el tiempo) hace que golpee a BYTE: le quita salud y energía (nunca el último ♥).
 // · DEBILIDAD: la habilidad aprendida en la región (como en Mega Man, pero con sentido: el concepto
 //   que acabas de entender es lo que desmonta el fallo).
 // · Arena al final del nivel: la compuerta se abre al completar la región, se cierra durante el
@@ -13,7 +16,7 @@ const gKeys = t => String(t || '').replace(/\{A\}/g, Input.label('attack')).repl
 const Guardians = {
   byLevel: {},
   quizShown(W) { const B = W && W.v.guardian; return !!(B && B.state === 'quiz' && W.v.gQuiz); },
-  active(W) { const B = W && W.v.guardian; return !!(B && !B.dead && ['intro', 'fight', 'quiz', 'stun', 'dying'].includes(B.state)); },
+  active(W) { const B = W && W.v.guardian; return !!(B && !B.dead && ['intro', 'fight', 'quiz', 'special', 'stun', 'dying'].includes(B.state)); },
   flag(spec) { return 'G_' + spec.id; },
   // se llama al crear el mundo de un nivel con guardián
   setup(W) {
@@ -38,6 +41,7 @@ const Guardians = {
   // HUD: barra de vida, consulta y cartel de presentación
   drawHUD(g, W) {
     const B = W.v.guardian;
+    drawSpecialFX(g, W);
     if (W.v.gCard) {
       const c = W.v.gCard; c.t += 1 / 60;
       if (c.t > 3) W.v.gCard = null;
@@ -50,13 +54,13 @@ const Guardians = {
       Font.draw(g, c.sub, W_HUD_R / 2, y + 42, PAL.grayL, { align: 'center' });
       g.globalAlpha = 1;
     }
-    if (!B || B.dead || !['fight', 'quiz', 'stun'].includes(B.state)) return;
+    if (!B || B.dead || !['fight', 'quiz', 'special', 'stun'].includes(B.state)) return;
     const sp = B.spec, x = 142, w = 184, y = 4;
     g.fillStyle = 'rgba(8,5,12,0.9)'; g.fillRect(x, y, w, 24);
     g.fillStyle = sp.col; g.fillRect(x, y + 23, w, 1);
     Font.draw(g, UI.fit(sp.name, w - 60), x + 4, y, sp.col);
-    const st = B.state === 'quiz' ? 'CONSULTA' : B.state === 'stun' ? '¡DAÑO ×2!' : B.guardOpen(W, null) ? '' : 'BLINDADO';
-    if (st) Font.draw(g, st, x + w - 4, y, B.state === 'stun' ? PAL.gold : B.state === 'quiz' ? PAL.cyan : PAL.gray, { align: 'right' });
+    const st = B.state === 'quiz' ? 'CONSULTA' : B.state === 'special' ? 'ATAQUE ESPECIAL' : B.state === 'stun' ? '¡DAÑO ×2!' : B.guardOpen(W, null) ? '' : 'BLINDADO';
+    if (st) Font.draw(g, st, x + w - 4, y, B.state === 'stun' ? PAL.gold : B.state === 'quiz' ? PAL.cyan : B.state === 'special' ? PAL.red : PAL.gray, { align: 'right' });
     const bx = x + 4, bw = w - 8, by = y + 14;
     g.fillStyle = '#1A0A12'; g.fillRect(bx, by, bw, 6);
     const f = clamp(B.shownHp / B.maxHp, 0, 1), f2 = clamp(B.hp / B.maxHp, 0, 1);
@@ -82,11 +86,13 @@ class AnswerOrb extends Ent {
   constructor(W, x, y, text, ok, idx) {
     super(0, 0, {}, 16, 16);
     this.x = x - 8; this.y = y - 8; this.baseY = this.y; this.text = text; this.ok = ok; this.idx = idx;
-    this.kind = 'answer'; this.layer = 2; this.interactive = true; this.alwaysUpdate = true; this.pop = 0;
+    this.kind = 'answer'; this.layer = 2; this.interactive = true; this.alwaysUpdate = true; this.pop = 0; this.age = 0;
   }
   get prompt() { return 'Elegir «' + this.text + '»'; }
-  update(W, dt) { this.t += dt; this.pop = Math.min(1, this.pop + dt * 3); this.y = this.baseY + Math.sin(this.t * 2.4 + this.idx) * 2; }
-  onPing(W) { this.choose(W); return true; }
+  update(W, dt) { this.t += dt; this.age += dt; this.pop = Math.min(1, this.pop + dt * 3); this.y = this.baseY + Math.sin(this.t * 2.4 + this.idx) * 2; }
+  // mientras aparece absorbe el disparo sin responder (ni lo deja pasar hacia otro orbe): así un tiro
+  // lanzado justo al abrirse la consulta no elige una respuesta por accidente
+  onPing(W) { if (this.age >= 0.4) this.choose(W); return true; }
   interact(W) { this.choose(W); }
   choose(W) {
     const q = W.v.gQuiz, B = W.v.guardian;
@@ -100,7 +106,7 @@ class AnswerOrb extends Ent {
     const r = Math.round(7 * s);
     for (let yy = -r; yy <= r; yy++) { const ww = Math.round(Math.sqrt(r * r - yy * yy)); g.fillStyle = yy < -r / 3 ? '#FFFFFF' : col; g.fillRect(cx - ww, cy + yy, ww * 2, 1); }
     g.fillStyle = shade(col, 0.5); g.fillRect(cx - 2, cy - 2, 4, 4);
-    W.label(this.text, cx, this.y - 15, col, { prio: 6 });
+    if (!W.v.gSpecial) W.label(this.text, cx, this.y - 15, col, { prio: 6 });
   }
 }
 AnswerOrb.prototype.glow = function () { return [this.cx, this.cy, 16, '#9FF6FF', 0.4]; };
@@ -249,9 +255,9 @@ class Guardian extends Ent {
     this.hp = this.maxHp = spec.hp; this.shownHp = spec.hp; this.state = 'hidden'; this.alpha = 0;
     this.flashT = 0; this.stunT = 0; this.freezeT = 0; this.vx = 0; this.vy = 0; this.face = -1; this.squash = 0;
     this.idleT = 1.2; this.move = null; this.moveIx = 0; this.phase = 0; this.grounded = spec.mode !== 'hover';
-    this.nQuiz = Math.min(2, (spec.qs || []).length);
-    this.thresholds = this.nQuiz === 2 ? [2 / 3, 1 / 3] : this.nQuiz === 1 ? [0.5] : [];
-    this.quizzesDone = 0; this.usedQ = []; this.marks = null; this.beam = null; this.ghost = null;
+    this.nQuiz = Math.min(3, (spec.qs || []).length);
+    this.thresholds = [[], [0.5], [2 / 3, 1 / 3], [0.75, 0.5, 0.25]][this.nQuiz];
+    this.quizzesDone = 0; this.usedQ = []; this.usedQuick = []; this.quizWrong = 0; this.marks = null; this.beam = null; this.ghost = null;
   }
   get speedK() { return 1 + this.phase * 0.16; }
   // ¿puede recibir daño ahora mismo? (mecánica de su concepto)
@@ -274,6 +280,7 @@ class Guardian extends Ent {
     if (this.state === 'intro' || this.state === 'dying') return; // los anima su guion
     const sp = this.spec;
     if (sp.update) sp.update(W, this, dt);
+    if (this.state === 'special') { this.physics(W, dt, true); return; } // lo anima su guion
     if (this.freezeT > 0) { this.freezeT -= dt; this.physics(W, dt, true); return; }
     if (this.state === 'stun') { this.stunT -= dt; this.physics(W, dt, true); this.contact(W, true); if (this.stunT <= 0) { this.state = 'fight'; this.idleT = 0.6; } return; }
     if (this.state === 'quiz') { this.physics(W, dt, true); if (sp.mode === 'hover') { this.x = lerp(this.x, (this.A.x0 + this.A.x1) / 2 - this.w / 2, 1 - Math.exp(-dt * 2)); this.y = lerp(this.y, this.A.floor - this.h - 116 + Math.sin(this.t * 2) * 3, 1 - Math.exp(-dt * 2)); } return; }
@@ -331,7 +338,7 @@ class Guardian extends Ent {
     if (!safe) p.hurt(W, 1, this.cx);
   }
   hit(W, dmg, srcX, kind) {
-    if (this.dead || this.state === 'hidden' || this.state === 'intro' || this.state === 'dying') return false;
+    if (this.dead || this.state === 'hidden' || this.state === 'intro' || this.state === 'dying' || this.state === 'special') return false;
     if (this.state === 'quiz') { floatText(W, this.cx, this.y - 8, 'BLINDADO: RESPONDE LA CONSULTA', PAL.cyan); AudioSys.play('ui_back'); return false; }
     const sp = this.spec;
     if (this.state !== 'stun' && !this.guardOpen(W, kind)) {
@@ -365,7 +372,7 @@ class Guardian extends Ent {
   startQuiz(W) {
     const sp = this.spec;
     this.state = 'quiz'; this.move = null; this.beam = null; this.marks = null; this.ghost = null; this.vx = 0;
-    for (const p of W.projectiles) if (p.owner !== 'player') p.dead = true;
+    for (const p of W.projectiles) p.dead = true; // también los del jugador que ya volaban hacia el guardián
     const pool = sp.qs.map((q, i) => i).filter(i => !this.usedQ.includes(i));
     const qi = pick(pool.length ? pool : sp.qs.map((q, i) => i)); this.usedQ.push(qi);
     const q = sp.qs[qi];
@@ -386,15 +393,43 @@ class Guardian extends Ent {
       if (Q.wrong === 0) Progression.addXP(12, 'consulta');
       W.bark(guide(), '✓ ' + Q.q.why, 'HAPPY', 5);
       W.v.gQuiz = null; this.quizzesDone++;
-      this.stun(W, 5, '¡CORRECTO! VULNERABLE');
+      this.stun(W, 6, '¡CORRECTO! VULNERABLE');
     } else {
-      Q.wrong++; orb.dead = true;
+      Q.wrong++; this.quizWrong++; orb.dead = true;
       W.sfx('wrong'); W.shake(2, 0.2);
       W.particles.burst(orb.cx, orb.cy, 16, { col: [PAL.red, PAL.amber], max: 90 });
-      for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + (i - 1) * 0.6; gShot(W, this, orb.cx, orb.cy, Math.cos(a) * 70, Math.sin(a) * 70, { life: 1.6 }); }
       const why = (Q.q.no && Q.q.no[orb.text]) || ('«' + orb.text + '» no es la respuesta.');
-      W.bark(guide(), '✗ ' + why, 'WORRIED', 5);
+      // respuesta incorrecta → ATAQUE ESPECIAL con pregunta rápida (la primera, sobre la misma idea)
+      const quick = this.pickQuick(Q);
+      if (quick && !W.player.dead) {
+        const self = this, sp = this.spec;
+        this.state = 'special'; // ya: ningún otro orbe puede responderse hasta que termine el ataque
+        W.run(function* () {
+          yield* bossSpecial(W, {
+            boss: self, restore: 'quiz', name: sp.special || 'ATAQUE ESPECIAL', who: sp.name, col: sp.col, concept: sp.concept, quick, why, chId: 'guard_' + sp.id,
+            origin: () => ({ x: self.cx, y: self.cy }),
+            // desviado: le hace daño, pero sin saltarse la consulta siguiente ni derrotarlo blindado
+            onDeflect() {
+              const next = self.thresholds[self.quizzesDone + 1];
+              const floor = next != null ? Math.floor(next * self.maxHp) + 1 : 1;
+              const d = Math.max(0, Math.min(Math.round(self.maxHp * 0.08), self.hp - floor));
+              if (d > 0) { self.hp -= d; self.flashT = 0.2; floatText(W, self.cx + 10, self.y - 8, '-' + d, PAL.gold); }
+            }
+          });
+        }, 'guardian_special');
+      } else W.bark(guide(), '✗ ' + why, 'WORRIED', 5);
     }
+  }
+  // pregunta rápida: primero la ligada a la consulta fallada; después, las generales del guardián
+  pickQuick(Q) {
+    const sp = this.spec;
+    if (Q.q.quick && !Q.quickUsed) { Q.quickUsed = true; return Q.q.quick; }
+    const pool = sp.quickPool || [];
+    if (!pool.length) return Q.q.quick || null;
+    let i = pool.findIndex((q, k) => !this.usedQuick.includes(k));
+    if (i < 0) { this.usedQuick = []; i = randi(0, pool.length - 1); }
+    this.usedQuick.push(i);
+    return pool[i];
   }
   defeat(W) {
     if (this.state === 'dying') return;
@@ -423,6 +458,7 @@ class Guardian extends Ent {
     if (sp.draw) sp.draw(g, W, this, x, y);
     g.globalAlpha = 1;
     // estados
+    if (this.state === 'special') specialRender(g, W, this, W.v.gSpecial);
     if (this.state === 'quiz') { this.ring(g, W, PAL.cyan); W.label('?', this.cx, this.y - 14 + Math.round(Math.sin(W.t * 5) * 2), PAL.cyan, { prio: 5, back: false, shadow: '#000000' }); }
     else if (this.state === 'stun') { for (let i = 0; i < 3; i++) { const a = W.t * 5 + i * 2.1; Font.draw(g, '★', this.cx + Math.cos(a) * 12, this.y - 8 + Math.sin(a) * 3, PAL.gold, { align: 'center' }); } }
     else if (this.state === 'fight' && !this.guardOpen(W, null)) this.ring(g, W, sp.guard.col || PAL.gray);
@@ -525,6 +561,7 @@ function* G_defeat(W, B) {
   yield 0.8;
   W.camFollow();
   Progression.addXP(60, 'guardián');
+  if (B.quizWrong === 0 && B.quizzesDone > 0) { Progression.addXP(40, 'consultas perfectas'); UI.toast('¡CONSULTAS PERFECTAS!', PAL.gold); Achievements.unlock('sage'); }
   if (sp.outro) yield* W.say(sp.outro(W), { id: 'G_outro_' + sp.id });
   if (sp.chip && !Chips.owned(sp.chip)) {
     Chips.grant(sp.chip);
@@ -534,4 +571,172 @@ function* G_defeat(W, B) {
   Achievements.check();
   Game.save();
   W.unlock();
+}
+
+// ---------------------------------------------------------------- ATAQUE ESPECIAL + PREGUNTA RÁPIDA ----
+// Común a los guardianes y a CASCADE. o = { boss, name, col, concept, quick: {q, o:[correcta, …], why},
+// why (explicación del error que lo provocó), chId, origin(W) → {x, y}, onDeflect(W), onHit(W) }.
+function* bossSpecial(W, o) {
+  const B = o.boss, p = W.player;
+  const restore = o.restore || B.state;
+  B.state = 'special';
+  W.lock();
+  try {
+    for (const q of W.projectiles) if (q.owner !== 'player') q.dead = true;
+    W.barks.length = 0; W.tipBox = null; // la explicación del error se lee en el panel de la pregunta
+    const S = W.v.gSpecial = { name: o.name, who: o.who || '', col: o.col || PAL.red, t: 0, charge: 0, blast: null, phase: 'charge', origin: o.origin || (() => ({ x: B.cx, y: B.cy })) };
+    // 1) cinemática: el jefe concentra energía (la cámara encuadra a ambos)
+    W.sfx('alarm', '[' + o.name.toLowerCase() + ': cargando]'); W.shake(2, 1.2);
+    const o0 = S.origin(W); W.cam.lockT = { x: (o0.x + p.cx) / 2, y: (o0.y + p.cy) / 2 };
+    for (const t0 = W.t; W.t - t0 < 1.5;) { S.t = W.t - t0; S.charge = S.t / 1.5 * 0.35; specialParticles(W, S); yield; }
+    // 2) pregunta rápida mientras sigue cargando
+    const q = o.quick, chars = Font.count(q.q) + q.o.join('').length;
+    const time = clamp(6 + chars * 0.05, 8, 14) * (Settings.data.assist ? 1.5 : 1);
+    const sig = Task.signal(), t0 = W.t;
+    S.phase = 'question';
+    Game.push(new QuickQuestionState(q, { time, name: o.name, col: S.col, why: o.why, special: S, onDone: r => sig.finish(r) }));
+    const res = yield sig;
+    const ok = !!(res && res.ok);
+    LearningModel.record({ concept: o.concept, chId: (o.chId || 'boss') + '_quick', correct: ok, firstTry: ok, hints: 0, time: W.t - t0, expected: time * 0.6, conf: null, difficulty: 1, transfer: true, prompt: 'Pregunta rápida: ' + q.q });
+    // 3) descarga: hacia BYTE, o desviada contra el propio jefe
+    const from = S.origin(W), to = { x: p.cx, y: p.y + 7 };
+    S.phase = 'blast'; S.charge = 1; S.blast = { x0: from.x, y0: from.y, x1: to.x, y1: to.y, t: 0 };
+    W.sfx(ok ? 'shield' : 'explosion', ok ? '[ataque desviado]' : '[impacto del ataque especial]');
+    for (const t1 = W.t; W.t - t1 < 0.45;) { S.blast.t = (W.t - t1) / 0.45; yield; }
+    if (ok) {
+      W.sfx('correct'); W.flash(PAL.cyan, 0.25);
+      S.col = PAL.cyan; S.blast = { x0: to.x, y0: to.y, x1: from.x, y1: from.y, t: 0 };
+      for (const t1 = W.t; W.t - t1 < 0.35;) { S.blast.t = (W.t - t1) / 0.35; yield; }
+      S.blast = null; S.charge = 0;
+      W.shake(5, 0.4); W.particles.burst(from.x, from.y, 40, { col: [PAL.cyan, PAL.white, o.col || PAL.red], max: 140, lmax: 1 });
+      floatText(W, from.x, from.y - 24, '¡ATAQUE DESVIADO!', PAL.cyan);
+      Progression.addXP(8, 'pregunta rápida');
+      if (o.onDeflect) o.onDeflect(W);
+      W.bark(guide(), '✓ ' + q.why + ' ¡El ataque se volvió contra él!', 'HAPPY', 5);
+    } else {
+      S.blast = null; S.charge = 0;
+      W.shake(7, 0.6); W.flash(PAL.red, 0.35);
+      W.particles.burst(to.x, to.y, 40, { col: [S.col, PAL.red, PAL.white], max: 150, lmax: 1 });
+      const lost = p.specialHit(W, o.dmg || 2, o.drain || 0.6);
+      floatText(W, p.cx, p.y - 16, (res && res.timeout ? '¡TIEMPO! ' : '') + (lost.hp ? '-' + lost.hp + ' ♥  ' : '') + '-' + lost.en + ' % EN', PAL.red);
+      if (o.onHit) o.onHit(W);
+      W.bark(guide(), '✗ Era «' + q.o[0] + '». ' + q.why, 'WORRIED', 6);
+    }
+    yield 0.6;
+  } finally {
+    // pase lo que pase (incluso un error), el jefe y el control vuelven a su estado
+    W.v.gSpecial = null; W.camFollow();
+    if (B.state === 'special') B.state = restore === 'special' ? 'quiz' : restore;
+    W.unlock();
+  }
+}
+function specialParticles(W, S) {
+  const c = S.origin(W);
+  if (Math.random() < 0.8) { const a = rand(0, Math.PI * 2), r = rand(40, 70); W.particles.spawn({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2, vy: -Math.sin(a) * r * 2, col: pick([S.col, PAL.white]), life: 0.45 }); }
+}
+// aura de carga (crece con S.charge) y rayo de descarga (en el mundo)
+function specialRender(g, W, B, S) {
+  if (!S) return;
+  const c = S.origin(W), k = S.charge, r = 12 + k * 40 + Math.sin(W.t * 20) * 2;
+  if (S.phase !== 'blast' || !S.blast) {
+    g.globalAlpha = 0.45 + 0.4 * k;
+    g.fillStyle = S.col;
+    for (let a = 0; a < Math.PI * 2; a += 0.12) g.fillRect(Math.round(c.x + Math.cos(a + W.t * 3) * r) - 1, Math.round(c.y + Math.sin(a + W.t * 3) * r) - 1, 3, 3);
+    g.fillStyle = PAL.white;
+    for (let a = 0; a < Math.PI * 2; a += 0.4) g.fillRect(Math.round(c.x + Math.cos(a - W.t * 5) * r * 0.6) - 1, Math.round(c.y + Math.sin(a - W.t * 5) * r * 0.6) - 1, 2, 2);
+    // núcleo de energía que crece y late
+    const cr = Math.round(3 + k * 7 + Math.sin(W.t * 14) * 1.5);
+    g.globalAlpha = 0.85; g.fillStyle = Math.floor(W.t * 10) % 2 ? PAL.white : S.col;
+    for (let yy = -cr; yy <= cr; yy++) { const ww = Math.round(Math.sqrt(cr * cr - yy * yy)); g.fillRect(Math.round(c.x) - ww, Math.round(c.y) + yy, ww * 2, 1); }
+    g.globalAlpha = 1;
+  }
+  const b = S.blast;
+  if (b) {
+    const f = easeOut(b.t), x1 = lerp(b.x0, b.x1, f), y1 = lerp(b.y0, b.y1, f);
+    const n = Math.max(2, Math.round(dist(b.x0, b.y0, x1, y1) / 3));
+    for (let i = 0; i <= n; i++) {
+      const q = i / n, x = lerp(b.x0, x1, q), y = lerp(b.y0, y1, q) + Math.sin(q * 20 + W.t * 40) * 3;
+      g.fillStyle = i % 2 ? S.col : PAL.white; g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 5, 5);
+    }
+  }
+}
+// en pantalla: viñeta de peligro y título «cinematográfico» mientras el jefe carga
+function drawSpecialFX(g, W) {
+  const S = W.v.gSpecial;
+  if (!S) return;
+  const pulse = 0.6 + 0.4 * Math.sin(W.t * 8), k = Math.max(0.3, S.charge);
+  g.fillStyle = S.col;
+  for (let i = 0; i < 5; i++) {
+    g.globalAlpha = (0.16 - i * 0.03) * pulse * k;
+    const d = i * 4;
+    g.fillRect(d, d, W_HUD_R - d * 2, 4); g.fillRect(d, H - d - 4, W_HUD_R - d * 2, 4);
+    g.fillRect(d, d + 4, 4, H - d * 2 - 8); g.fillRect(W_HUD_R - d - 4, d + 4, 4, H - d * 2 - 8);
+  }
+  g.globalAlpha = 1;
+  if (S.phase !== 'charge') return;
+  // título: entra desde la izquierda
+  const e = easeOut(clamp(S.t / 0.35, 0, 1)), title = '¡' + S.name + '!', tw = Font.measure(title, 2) + 24;
+  const x = Math.round(W_HUD_R / 2 - tw / 2 - (1 - e) * 120), y = 92;
+  g.fillStyle = '#08040C'; g.fillRect(x, y, tw, 40);
+  g.fillStyle = S.col; g.fillRect(x, y, tw, 2); g.fillRect(x, y + 38, tw, 2);
+  Font.draw(g, 'ATAQUE ESPECIAL' + (S.who ? ' · ' + S.who : ''), x + tw / 2, y + 3, PAL.grayL, { align: 'center' });
+  Font.draw(g, title, x + tw / 2, y + 13, Math.floor(W.t * 8) % 2 ? S.col : PAL.white, { align: 'center', s: 2 });
+}
+// Panel de la pregunta rápida: el mundo sigue visible (y el ataque cargando) mientras se responde.
+// Muestra también POR QUÉ falló la consulta: leer esa explicación ayuda a desviar el ataque.
+class QuickQuestionState {
+  constructor(q, o) {
+    this.overlay = true; this.updateBelow = true; this.q = q; this.o = o; this.t = 0; this.sel = 0; this.done_ = false; this.rects = [];
+    // opciones barajadas; la correcta es q.o[0]
+    this.order = q.o.map((t, i) => i).sort(() => Math.random() - 0.5);
+    this.why = o.why ? UI.wrap('✗ ' + o.why, 388).slice(0, 2) : [];
+    this.lines = UI.wrap(q.q, 388).slice(0, 3);
+  }
+  enter() { if (Game.world) { Game.world.barks.length = 0; Game.world.tipBox = null; } UI.captions.length = 0; }
+  update(dt) {
+    if (this.done_) return;
+    this.t += dt;
+    const S = this.o.special; if (S) { S.t += dt; S.charge = 0.35 + 0.65 * clamp(this.t / this.o.time, 0, 1); if (Game.world) specialParticles(Game.world, S); }
+    if (this.t >= this.o.time) { this.finish(-1, true); return; }
+    if (this.t < 0.35) return; // evita respuestas accidentales con la tecla de la acción anterior
+    const n = this.order.length;
+    if (Input.nav('left') || Input.nav('up')) { this.sel = (this.sel + n - 1) % n; AudioSys.play('ui_move'); }
+    if (Input.nav('right') || Input.nav('down')) { this.sel = (this.sel + 1) % n; AudioSys.play('ui_move'); }
+    for (let i = 0; i < n; i++) if (Input.keyPressed('Digit' + (i + 1)) || Input.keyPressed('Numpad' + (i + 1))) { this.finish(i); return; }
+    const r = this.rects.findIndex(b => UI.clicked(b.x, b.y, b.w, b.h));
+    if (r >= 0) { this.finish(r); return; }
+    if (Input.pressed('confirm') || Input.pressed('attack')) this.finish(this.sel);
+  }
+  finish(i, timeout) {
+    if (this.done_) return;
+    this.done_ = true;
+    const ok = i >= 0 && this.order[i] === 0;
+    AudioSys.play(ok ? 'correct' : 'wrong');
+    if (Game.top() === this) Game.pop();
+    if (this.o.onDone) this.o.onDone({ ok, timeout: !!timeout, choice: i >= 0 ? this.q.o[this.order[i]] : null });
+  }
+  get layout() {
+    const x = 36, w = 408, nw = this.why.length, nq = this.lines.length;
+    const h = 28 + (nw ? nw * 12 + 4 : 0) + nq * 12 + 4 + 15 + 18;
+    return { x, w, h, y: H - h - 6 };
+  }
+  render(g) {
+    const col = this.o.col || PAL.red, L = this.layout, x = L.x, y = L.y, w = L.w;
+    UI.panel(g, x, y, w, L.h, { border: col, title: 'PREGUNTA RÁPIDA', titleCol: col, fill: '#0A0610' });
+    Font.draw(g, UI.fit('¡' + this.o.name + '! Responde antes de que descargue', w - 60), x + 10, y + 6, col);
+    const left = Math.max(0, this.o.time - this.t), f = left / this.o.time;
+    UI.bar(g, x + 10, y + 20, w - 60, 5, f, f < 0.3 ? PAL.red : PAL.amber);
+    Font.draw(g, Math.ceil(left) + ' s', x + w - 10, y + 15, f < 0.3 ? PAL.red : PAL.amber, { align: 'right' });
+    let ty = y + 28;
+    if (this.why.length) { Font.drawLines(g, this.why, x + 10, ty, PAL.grayL); ty += this.why.length * 12 + 4; }
+    Font.drawLines(g, this.lines, x + 10, ty, PAL.white, { hl: col });
+    const n = this.order.length, bw = Math.floor((w - 20 - (n - 1) * 8) / n), by = ty + this.lines.length * 12 + 4;
+    this.rects = [];
+    this.order.forEach((oi, i) => {
+      const bx = x + 10 + i * (bw + 8);
+      UI.button(g, bx, by, bw, 15, (i + 1) + '. ' + UI.fit(this.q.o[oi], bw - 24), i === this.sel, { color: col });
+      this.rects.push({ x: bx, y: by, w: bw, h: 15 });
+    });
+    UI.keyHints(g, [['←→', 'Elegir'], [Input.label('interact'), 'Responder'], ['1-' + n, 'Directo']], x + w / 2, by + 19, 'center');
+  }
 }

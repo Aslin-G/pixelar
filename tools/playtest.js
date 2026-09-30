@@ -35,7 +35,18 @@ const shots = process.argv[4];
       } else if (n === 'ChoicePromptState') {
         const i = BOT.pq.length ? BOT.pq.shift() : 0; BOT.log.push('prompt ' + i + ': ' + st.title); st.done(i);
       } else if (n === 'ChallengeState') {
-        if (st.phase === 'play' || st.phase === 'conf') { BOT.log.push('challenge ' + st.ch.id); st.resultOk = true; st.xpGained = 6; st.record(true); st.phase = 'result'; st.afterResult(); }
+        if (st.phase === 'play' || st.phase === 'conf') {
+          // en las dos primeras consolas de CASCADE, simula un intento fallido (provoca su ATAQUE ESPECIAL)
+          if (st.o.source === 'boss' && (BOT.bossWrong || 0) < 2 && !st.__w) { st.__w = true; BOT.bossWrong = (BOT.bossWrong || 0) + 1; st.attempt = 2; BOT.log.push('boss: intento fallido simulado'); }
+          BOT.log.push('challenge ' + st.ch.id); st.resultOk = true; st.xpGained = 6; st.record(true); st.phase = 'result'; st.afterResult();
+        }
+      } else if (n === 'QuickQuestionState') {
+        // pregunta rápida del ATAQUE ESPECIAL: alterna acierto (desvía) y fallo (recibe el golpe)
+        if (st.t > 0.5 && !st.done_) {
+          const k = BOT.quickN = (BOT.quickN || 0) + 1, good = st.order.indexOf(0), i = k % 2 ? good : (good + 1) % st.order.length;
+          BOT.quick = BOT.quick || { ok: 0, bad: 0 }; BOT.quick[i === good ? 'ok' : 'bad']++;
+          BOT.log.push('quick ' + (i === good ? 'ok' : 'mal') + ': ' + st.q.q); st.finish(i);
+        }
       } else if (n === 'ReaderState') { Game.pop(); if (st.o.onDone) st.o.onDone(); }
       else if (['BlueprintState', 'CodexState', 'QuestLogState', 'MemoriesState', 'ProgressState'].includes(n)) { st.__botT = (st.__botT || 0) + 1; if (st.__botT > 30) { BOT.log.push('cerrar ' + n); Game.pop(); } }
       else if (n === 'LevelCompleteState') { if (st.t > 0.3) { BOT.log.push('LEVEL COMPLETE ' + st.W.index); BOT.completed = st.W.index; const next = st.W.def.next != null ? st.W.def.next : st.W.index + 1; Game.pop(); Game.loadLevel(next); } }
@@ -141,12 +152,16 @@ const shots = process.argv[4];
       const at = (x, y) => { p.x = clamp(x - p.w / 2, B.A.x0 + 4, B.A.x1 - p.w - 4); p.y = y; p.vx = 0; p.vy = 0; };
       let busy = false; const stats = { shots: 0, quiz: 0, uses: {} };
       const u = k => { if (k === 'ground' || use(k)) stats.uses[k] = (stats.uses[k] || 0) + 1; };
-      for (let f = 0; f < 9000 && !B.dead; f++) {
+      for (let f = 0; f < 24000 && !B.dead; f++) {
         if (!(Game.top() instanceof GameplayState) || W.scripts.blocking) { Game.update(1 / 60); continue; }
         p.invuln = 1; p.hp = Math.max(p.hp, 2);
         const sp = B.spec;
         if (B.state === 'quiz' && W.v.gQuiz) {
-          const o = W.v.gQuiz.orbs.find(q => q.ok && !q.dead);
+          // la primera consulta de cada guardián se falla a propósito: ATAQUE ESPECIAL + pregunta rápida
+          const wrong = !B.__botWrong && W.v.gQuiz.orbs.find(q => !q.ok && !q.dead);
+          if (wrong && wrong.age <= 0.5) { Game.update(1 / 60); continue; } // (el orbe aún está apareciendo)
+          const o = wrong || W.v.gQuiz.orbs.find(q => q.ok && !q.dead);
+          if (wrong && wrong.age > 0.5 && f % 12 === 0) { B.__botWrong = true; stats.wrong = (stats.wrong || 0) + 1; at(o.cx - 22, B.A.floor - p.h); p.facing = 1; p.attack(W); Game.update(1 / 60); continue; }
           if (o && f % 12 === 0) { at(o.cx - 22, B.A.floor - p.h); p.facing = 1; p.attack(W); stats.quiz++; }
           Game.update(1 / 60); continue;
         }
@@ -330,7 +345,7 @@ const shots = process.argv[4];
       await page.waitForTimeout(500);
     }
   }
-  const fin = await page.evaluate(() => ({ top: Game.top() && Game.top().constructor.name, states: BOT.seenStates, prog: { xp: PROG.xp, lvl: PROG.playerLevel, abilities: PROG.abilities, frags: PROG.fragments.length, letters: PROG.letters.join(''), achievements: PROG.achievements, flags: Object.keys(PROG.flags).length } }));
+  const fin = await page.evaluate(() => ({ top: Game.top() && Game.top().constructor.name, states: BOT.seenStates, quick: BOT.quick, prog: { xp: PROG.xp, lvl: PROG.playerLevel, abilities: PROG.abilities, frags: PROG.fragments.length, letters: PROG.letters.join(''), achievements: PROG.achievements, flags: Object.keys(PROG.flags).length } }));
   console.log('\nFINAL', JSON.stringify(fin, null, 1));
   await shot('final');
   await browser.close();
@@ -394,13 +409,13 @@ const SOLVERS = {
       for (let k = 0; k < 900; k++) {
         const st = await page.evaluate(() => {
           const W = Game.world; if (!W || W.index !== 9) return 'left';
-          const top = Game.top(); if (!(top instanceof GameplayState) && !(top.constructor.name === 'DialogueState' || top.constructor.name === 'ChoicePromptState' || top.constructor.name === 'ChallengeState')) return 'top:' + top.constructor.name;
+          const top = Game.top(); if (!(top instanceof GameplayState) && !['DialogueState', 'ChoicePromptState', 'ChallengeState', 'QuickQuestionState'].includes(top.constructor.name)) return 'top:' + top.constructor.name;
           const B = W.v.boss; if (!B) return 'noboss';
           if (B.shieldEvent) { const nf = W.v.nullFig, p = W.player; p.shieldT = 2; p.x = nf.x + 5; p.y = nf.y + 5; return 'shield'; }
           if (!BOT.idle()) return 'busy:' + B.state + B.phase;
           if (!B.active) return 'inactive';
           if (B.state === 'console') { const c = B.console; BOT.tpEnt(c); if (c.interactive) c.interact(W); return 'console' + B.phase; }
-          if (B.state === 'core') { const C = W.v.cascade; if (C.exposed > 0) C.tryHit(W, C.x, C.coreY, 4); return 'core' + B.phase + ' ' + C.hits + '/' + C.hitsNeed; }
+          if (B.state === 'core') { const C = W.v.cascade; for (let i = 0; i < 2 && C.exposed > 0; i++) C.tryHit(W, C.x, C.coreY, 4); return 'core' + B.phase + ' ' + C.hits + '/' + C.hitsNeed; }
           return B.state + B.phase;
         });
         if (st !== last) { console.log('     boss:', st); last = st; }

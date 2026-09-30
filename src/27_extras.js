@@ -257,7 +257,8 @@ for (const e of CODEX) CODEX_BY_ID[e.id] = e;
 ACHIEVEMENTS.push(
   { id: 'guardians', n: 'Guardián de guardianes', d: 'Vence a los nueve guardianes de región.' },
   { id: 'combo5', n: 'Multihilo', d: 'Encadena un combo de 5 enemigos.' },
-  { id: 'bestiary', n: 'Analista de amenazas', d: 'Completa el bestiario de amenazas comunes.' }
+  { id: 'bestiary', n: 'Analista de amenazas', d: 'Completa el bestiario de amenazas comunes.' },
+  { id: 'sage', n: 'Consulta impecable', d: 'Vence a un jefe sin fallar ninguna de sus consultas.' }
 );
 const _achCheck = Achievements.check;
 Achievements.check = function () {

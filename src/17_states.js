@@ -190,7 +190,7 @@ function drawHUD(g, W, st) {
     const b = W.barks[0];
     const spk = SPEAKERS[b.s] || SPEAKERS.SYS;
     const lines = UI.wrap(b.t, 300);
-    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : 58;
+    const bh = Math.max(24, lines.length * 12 + 8), bw = 340, bx = (W_HUD_R - bw) / 2, by = Guardians.quizShown(W) ? 74 : W.v.boss && W.v.boss.active ? 90 : 58; // (en NULL CORE, bajo el panel de estabilidad)
     const a = b.time < 0.15 ? b.time / 0.15 : b.dur - b.time < 0.3 ? (b.dur - b.time) / 0.3 : 1;
     g.globalAlpha = clamp(a, 0, 1);
     UI.toastTop = by + bh + 4; // los avisos se colocan debajo del comentario
@@ -661,8 +661,9 @@ class ProgressState {
       Font.draw(g, 'Tiempo ' + fmtTime(st.time) + '   Precisión ' + acc + '%   Pistas ' + st.hints + '   Repasos ' + st.reviews + '   Memorias ' + PROG.fragments.length + '/' + TOTAL_FRAGMENTS, 240, 216, PAL.grayL, { align: 'center' });
       Font.draw(g, 'Es una estimación de tu dominio a partir de tus respuestas: no mide inteligencia ni capacidad.', 240, 230, PAL.gray, { align: 'center' });
     } else {
+      const lh = Math.max(12, Math.min(17, Math.floor(222 / ACHIEVEMENTS.length))); // que la lista quepa siempre
       ACHIEVEMENTS.forEach((a, i) => {
-        const y = 18 + i * 17, has = PROG.achievements.includes(a.id);
+        const y = 18 + i * lh, has = PROG.achievements.includes(a.id);
         Font.draw(g, (has ? '■ ' : '□ ') + a.n, 16, y, has ? PAL.gold : PAL.gray);
         Font.draw(g, a.d, 160, y, has ? PAL.grayL : PAL.grayD);
       });

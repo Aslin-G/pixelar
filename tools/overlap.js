@@ -159,15 +159,58 @@ const shots = process.argv[2];
       for (let k = 0; k < 900 && B.state !== 'fight'; k++) { adv(1); if (k % 30 === 0) OV.capture('Guardián ' + lv + ' presentación ' + k); }
       p.invuln = 99; p.graceT = 99;
       for (let k = 0; k < 6; k++) { adv(25); OV.capture('Guardián ' + lv + ' combate ' + k); }
-      B.hp = Math.floor(B.maxHp * 0.7); B.damage(W, 1);
+      B.hp = Math.floor(B.maxHp * B.thresholds[0]) + 1; B.damage(W, 1); // cruza el primer umbral → consulta
+      if (!W.v.gQuiz) throw new Error('el guardián ' + lv + ' no abrió la consulta');
       for (let k = 0; k < 6; k++) { adv(20); OV.capture('Guardián ' + lv + ' consulta ' + k); }
       UI.toast('+12 XP  consulta', PAL.green); UI.toast('BESTIARIO: MemoryLeak (fuga de memoria)', PAL.violet);
-      const Q = W.v.gQuiz; if (Q) { const bad = Q.orbs.find(o => !o.ok); if (bad) bad.choose(W); adv(30); OV.capture('Guardián ' + lv + ' consulta fallo'); Q.orbs.find(o => o.ok).choose(W); }
+      const Q = W.v.gQuiz;
+      if (Q) {
+        // consulta fallada → ATAQUE ESPECIAL: cinemática de carga, pregunta rápida, descarga
+        const bad = Q.orbs.find(o => !o.ok); if (bad) bad.choose(W);
+        for (let k = 0; k < 4; k++) { adv(25); OV.capture('Guardián ' + lv + ' especial carga ' + k); }
+        const qq = Game.top();
+        if (qq.constructor.name !== 'QuickQuestionState') throw new Error('guardián ' + lv + ': no apareció la pregunta rápida (' + qq.constructor.name + ')');
+        {
+          for (let i = 0; i < qq.order.length; i++) { qq.sel = i; adv(1); OV.capture('Guardián ' + lv + ' pregunta rápida sel' + i); }
+          // todas las preguntas rápidas del guardián, con la explicación de error más larga posible
+          const sp = B.spec, longest = o => Object.values(o || {}).sort((a, b) => b.length - a.length)[0] || '';
+          const all = sp.qs.map(q => [q.quick, longest(q.no)]).concat((sp.quickPool || []).map(q => [q, longest(Object.assign({}, ...sp.qs.map(x => x.no)))]));
+          all.forEach(([q, why], i) => { if (!q) return; const st = new QuickQuestionState(q, { time: 10, name: sp.special, col: sp.col, why }); Game.push(st); for (let j = 0; j < q.o.length; j++) { st.sel = j; OV.capture('Guardián ' + lv + ' rápida ' + i + ' sel' + j); } Game.pop(); });
+          qq.finish(qq.order.indexOf(0));
+        }
+        for (let k = 0; k < 5; k++) { adv(15); OV.capture('Guardián ' + lv + ' especial descarga ' + k); }
+        adv(60); OV.capture('Guardián ' + lv + ' consulta tras el ataque');
+        Q.orbs.find(o => o.ok).choose(W);
+      }
       for (let k = 0; k < 4; k++) { adv(20); OV.capture('Guardián ' + lv + ' aturdido ' + k); }
       UI.captions.length = 0; UI.toasts.length = 0; // (subtítulos de sonido: no deben pasar a la escena siguiente)
       return 0;
     }, lv);
   }
+
+  // ---------- CASCADE: consola con errores → ATAQUE ESPECIAL y sus preguntas rápidas ----------
+  await run('cascade especial', () => {
+    startTeacherLevel(9);
+    const W = Game.world; W.pending.length = 0;
+    const adv = n => { for (let k = 0; k < n; k++) { const t = Game.top(); if (t.constructor.name === 'DialogueState') { t.chars = t.full; t.pause = 0; if (t.L.ch) t.choose(); else if (t.L.auto == null) t.next(); } Game.update(1 / 60); } };
+    adv(10); W.run(BOSS_intro, 'intro');
+    for (let k = 0; k < 2400 && !(W.v.boss && W.v.boss.state === 'console' && !W.scripts.busy); k++) adv(1);
+    const B = W.v.boss; W.player.invuln = 99; W.player.graceT = 99;
+    B.useConsole(W, B.console); adv(2);
+    const ch = Game.top(); if (ch.constructor.name === 'ChallengeState') { ch.attempt = 2; ch.resultOk = true; ch.phase = 'result'; ch.afterResult(); }
+    for (let k = 0; k < 4; k++) { adv(25); OV.capture('CASCADE especial carga ' + k); }
+    const qq = Game.top();
+    if (qq.constructor.name !== 'QuickQuestionState') throw new Error('CASCADE: no apareció la pregunta rápida (' + qq.constructor.name + ')');
+    {
+      OV.capture('CASCADE pregunta rápida');
+      CASCADE_QUICK.forEach((pair, ph) => pair.forEach((a, i) => { const st = new QuickQuestionState({ q: a[0], o: a[1], why: a[2] }, { time: 10, name: 'CASCADA DE FALLOS', col: PAL.red, why: 'La consola resistió un intento fallido y CASCADE aprovecha la brecha.' }); Game.push(st); for (let j = 0; j < a[1].length; j++) { st.sel = j; OV.capture('CASCADE rápida ' + ph + '.' + i + ' sel' + j); } Game.pop(); }));
+      qq.finish(-1, true);
+    }
+    for (let k = 0; k < 6; k++) { adv(20); OV.capture('CASCADE especial impacto ' + k); }
+    for (let k = 0; k < 4; k++) { adv(40); OV.capture('CASCADE núcleo expuesto ' + k); }
+    UI.captions.length = 0; UI.toasts.length = 0;
+    return 0;
+  });
 
   // ---------- desafíos ----------
   const nCh = await run('desafios', () => {

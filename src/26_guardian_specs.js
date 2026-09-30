@@ -388,6 +388,149 @@ const GUARDIAN_SPECS = {
     chip: 'raid'
   }
 };
+// ---------------------------------------------------------------- ATAQUE ESPECIAL: PREGUNTAS RÁPIDAS ----
+// Si se falla una consulta, el guardián carga su ataque especial y lanza una PREGUNTA RÁPIDA:
+// · linked[i]: la MISMA idea que la consulta qs[i] vista desde otro ángulo (práctica de recuperación
+//   inmediata tras leer por qué se falló);
+// · pool: preguntas generales de la región, para un segundo fallo en la misma consulta.
+// Formato: [pregunta, [correcta, …distractores], por qué]. Además, la vida de cada guardián se triplica.
+const GUARDIAN_QUICK = {
+  bootloop: {
+    special: 'REINICIO INFINITO',
+    linked: [
+      ['¿Qué etapa va justo ANTES de SALIDA?', ['MEMORIA', 'PROCESO', 'ENTRADA'], 'El orden es ENTRADA → PROCESO → MEMORIA → SALIDA.'],
+      ['¿Un MONITOR es entrada o salida?', ['SALIDA', 'ENTRADA'], 'El monitor muestra resultados: es SALIDA.'],
+      ['¿Un sistema operativo es...?', ['SOFTWARE', 'HARDWARE'], 'El SO son programas: instrucciones, no piezas físicas.'],
+      ['¿Cómo se llama la autoprueba del firmware al encender?', ['POST', 'PING', 'DMA'], 'POST (Power-On Self-Test) revisa el hardware antes de arrancar.']
+    ],
+    pool: [
+      ['¿Un MICRÓFONO es entrada o salida?', ['ENTRADA', 'SALIDA'], 'Capta sonido y lo lleva al sistema: ENTRADA.'],
+      ['¿Una IMPRESORA es entrada o salida?', ['SALIDA', 'ENTRADA'], 'Saca resultados al papel: SALIDA.'],
+      ['¿Qué parte del computador se puede TOCAR?', ['HARDWARE', 'SOFTWARE'], 'El hardware es físico; el software son instrucciones.']
+    ]
+  },
+  surge: {
+    special: 'DESCARGA DE 12 V',
+    linked: [
+      ['El VRM entrega a la CPU un voltaje...', ['BAJO Y ESTABLE', 'ALTO Y VARIABLE', 'DE 220 V'], 'La CPU necesita poco voltaje y muy estable: ese es el trabajo del VRM.'],
+      ['¿Qué se instala en una ranura DIMM?', ['RAM', 'GPU', 'SSD'], 'DIMM es la ranura de los módulos de memoria RAM.'],
+      ['El chipset funciona como un...', ['INTERCAMBIADOR', 'DISIPADOR', 'ALMACÉN'], 'Conecta periféricos con la CPU, como un intercambiador de tráfico.'],
+      ['¿Cuántos carriles tiene una ranura PCIe x16?', ['16', '4', '1'], 'x16 significa 16 carriles de datos en paralelo.']
+    ],
+    pool: [
+      ['¿Dónde se coloca la CPU en la placa base?', ['EN EL SOCKET', 'EN UN DIMM', 'EN EL SATA'], 'La CPU va en el socket, rodeada por el VRM.'],
+      ['¿Qué convierte la corriente del enchufe para el PC?', ['LA FUENTE', 'EL CHIPSET', 'LA RAM'], 'La fuente de alimentación entrega 12 V, 5 V y 3,3 V.'],
+      ['Un disco SATA se conecta al...', ['PUERTO SATA', 'SOCKET', 'DIMM'], 'Los discos SATA van al puerto SATA de la placa.']
+    ]
+  },
+  overclock: {
+    special: 'PULSO DE 9 GHZ',
+    linked: [
+      ['¿Qué etapa va ANTES de DECODE?', ['FETCH', 'EXECUTE', 'WRITE BACK'], 'Primero FETCH trae la instrucción; después DECODE la interpreta.'],
+      ['¿Qué registro guarda la instrucción ACTUAL?', ['IR', 'PC', 'ALU'], 'El IR (registro de instrucción) la guarda mientras se decodifica.'],
+      ['Después de FETCH, el PC...', ['AVANZA', 'SE BORRA', 'SE APAGA'], 'El PC avanza para apuntar a la siguiente instrucción.'],
+      ['Un reloj de 3 GHz da 3 mil millones de... por segundo.', ['CICLOS', 'BYTES', 'VOLTIOS'], 'GHz: miles de millones de ciclos de reloj por segundo.']
+    ],
+    pool: [
+      ['¿Cuál es la última etapa del ciclo de instrucción?', ['WRITE BACK', 'FETCH', 'DECODE'], 'WRITE BACK guarda el resultado; luego el ciclo vuelve a empezar.'],
+      ['¿En qué etapa calcula la ALU?', ['EXECUTE', 'FETCH', 'DECODE'], 'En EXECUTE se realiza la operación: ahí trabaja la ALU.'],
+      ['¿Qué hace la etapa DECODE?', ['INTERPRETA', 'CALCULA', 'GUARDA'], 'DECODE interpreta la instrucción: qué operación y con qué datos.']
+    ]
+  },
+  overflow: {
+    special: 'DESBORDE TOTAL',
+    linked: [
+      ['10 en binario vale...', ['2', '10', '1'], 'En base 2: 1×2 + 0×1 = 2.'],
+      ['1 OR 0 =', ['1', '0'], 'OR da 1 si al menos una entrada es 1.'],
+      ['0010 + 0010 =', ['0100', '0011', '0110'], '2 + 2 = 4, y 4 en binario es 0100.'],
+      ['El ACARREO de un semisumador es una compuerta...', ['AND', 'XOR', 'NOT'], 'Sólo hay acarreo si ambos bits son 1: eso es AND.']
+    ],
+    pool: [
+      ['NOT 1 =', ['0', '1'], 'NOT invierte el bit: 1 pasa a 0.'],
+      ['1 XOR 1 =', ['0', '1', '2'], 'XOR da 1 sólo si los bits son distintos; iguales dan 0.'],
+      ['Con 4 bits, el mayor número sin signo es...', ['15', '16', '8'], '1111 = 8 + 4 + 2 + 1 = 15. El 16 ya desborda.']
+    ]
+  },
+  thrash: {
+    special: 'SWAP MASIVO',
+    linked: [
+      ['¿Cuál es la memoria más LENTA?', ['SSD', 'RAM', 'CACHÉ'], 'El almacenamiento (SSD o HDD) es el nivel más lento de la jerarquía.'],
+      ['¿La RAM es volátil?', ['SÍ', 'NO'], 'Sí: sin energía se borra. Por eso se guarda en el SSD.'],
+      ['¿Dónde está la caché L1?', ['EN LA CPU', 'EN EL SSD', 'EN LA FUENTE'], 'La L1 está dentro del núcleo: por eso es tan rápida.'],
+      ['Si el dato SÍ está en la caché, es un...', ['CACHE HIT', 'CACHE MISS', 'DEADLOCK'], 'HIT es un acierto: el dato llega rapidísimo.']
+    ],
+    pool: [
+      ['Cuanto más cerca de la CPU, la memoria es más...', ['RÁPIDA', 'LENTA', 'BARATA'], 'Cerca: rápida pero pequeña y cara. Lejos: lenta pero grande.'],
+      ['¿El SSD conserva los datos sin energía?', ['SÍ', 'NO'], 'Sí: el SSD es memoria no volátil.'],
+      ['¿Qué caché es más grande?', ['L3', 'L1'], 'La L3 es más grande y más lenta; la L1, pequeña y rapidísima.']
+    ]
+  },
+  busjam: {
+    special: 'CHOQUE DE CARRILES',
+    linked: [
+      ['El bus de DIRECCIONES indica...', ['DÓNDE', 'QUÉ VALOR', 'CUÁNDO'], 'Direcciones = DÓNDE leer o escribir.'],
+      ['La señal de reloj viaja por el bus de...', ['CONTROL', 'DATOS', 'DIRECCIONES'], 'Reloj, leer, escribir e IRQ son señales de control.'],
+      ['El bus de DATOS lleva...', ['EL VALOR', 'LA DIRECCIÓN', 'LA ORDEN'], 'Datos = el QUÉ: el valor que se lee o se escribe.'],
+      ['Un bus de 64 bits frente a uno de 32 mueve por ciclo...', ['EL DOBLE', 'LA MITAD', 'LO MISMO'], '64 carriles mueven el doble de bits a la vez.']
+    ],
+    pool: [
+      ['¿Cuántos buses forman el bus del sistema?', ['3', '2', '5'], 'Tres: datos, direcciones y control.'],
+      ['La orden ESCRIBIR viaja por el bus de...', ['CONTROL', 'DATOS', 'DIRECCIONES'], 'Las órdenes van por el bus de control.'],
+      ['Con 8 líneas de dirección se pueden señalar...', ['256 SITIOS', '8 SITIOS', '16 SITIOS'], '2 elevado a 8 = 256 direcciones distintas.']
+    ]
+  },
+  irqstorm: {
+    special: 'IRQ NO ENMASCARABLE',
+    linked: [
+      ['¿Qué decide qué IRQ se atiende primero?', ['LA PRIORIDAD', 'LA LLEGADA', 'EL AZAR'], 'Se atiende primero la interrupción de mayor prioridad.'],
+      ['Tras atender la interrupción, la CPU...', ['CONTINÚA', 'SE REINICIA', 'SE APAGA'], 'Restaura su estado y continúa donde lo dejó.'],
+      ['¿Qué gasta MENOS CPU al esperar un dispositivo?', ['INTERRUPCIÓN', 'POLLING'], 'La interrupción avisa sola; el polling pregunta sin parar.'],
+      ['Al terminar la copia, el DMA avisa con una...', ['INTERRUPCIÓN', 'CACHÉ', 'ALU'], 'El DMA lanza una interrupción cuando acaba la transferencia.']
+    ],
+    pool: [
+      ['La rutina que atiende una interrupción se llama...', ['ISR', 'DMA', 'ALU'], 'ISR: Interrupt Service Routine (rutina de servicio).'],
+      ['Pulsar una tecla genera una...', ['INTERRUPCIÓN', 'CACHÉ', 'OVERFLOW'], 'El teclado avisa a la CPU con una IRQ.'],
+      ['Una interrupción es...', ['UN AVISO', 'UN CABLE', 'UN DISCO'], 'Un aviso a la CPU: «atiéndeme», sin que tenga que preguntar.']
+    ]
+  },
+  deadlock: {
+    special: 'ESPERA ETERNA',
+    linked: [
+      ['Para romper un deadlock, alguien debe...', ['CEDER', 'ESPERAR MÁS', 'ACELERAR'], 'Si un proceso libera su recurso, la espera circular se rompe.'],
+      ['Si TODO el trabajo es secuencial, 8 núcleos dan...', ['1×', '8×', '4×'], 'Sin parte paralela, más núcleos no ayudan: 1×.'],
+      ['GPU al 100 % y CPU al 30 %: el cuello de botella es...', ['LA GPU', 'LA CPU', 'LA RAM'], 'El componente saturado es el que limita al resto.'],
+      ['El throttling se evita mejor con...', ['REFRIGERACIÓN', 'MÁS RAM', 'MÁS DISCO'], 'Menos calor: la CPU no necesita bajar su frecuencia.']
+    ],
+    pool: [
+      ['Varios núcleos trabajando a la vez es...', ['PARALELISMO', 'POLLING', 'OVERFLOW'], 'Paralelismo: repartir el trabajo entre varios núcleos.'],
+      ['¿Todo programa se acelera igual con más núcleos?', ['NO', 'SÍ'], 'No: la parte secuencial pone el límite (ley de Amdahl).'],
+      ['Un recurso que sólo uno puede usar a la vez se protege con un...', ['CERROJO', 'BUS', 'PÍXEL'], 'Un cerrojo (lock o mutex) da acceso exclusivo.']
+    ]
+  },
+  panic: {
+    special: 'VOLCADO DE NÚCLEO',
+    linked: [
+      ['¿Qué reparte el planificador del kernel?', ['TURNOS DE CPU', 'VOLTAJE', 'PÍXELES'], 'Reparte turnos de CPU entre los procesos.'],
+      ['Seguir un puntero nulo provoca...', ['UN ERROR', 'MÁS VELOCIDAD', 'UNA COPIA'], 'Apunta a nada: el programa falla al seguirlo.'],
+      ['Restaurar el contexto permite al proceso...', ['CONTINUAR', 'EMPEZAR DE 0', 'APAGARSE'], 'Con sus registros y su estado, sigue exactamente donde iba.'],
+      ['El kernel es el núcleo del...', ['SO', 'BIOS', 'CHIPSET'], 'El kernel es el núcleo del sistema operativo (SO).']
+    ],
+    pool: [
+      ['Un «kernel panic» es un error...', ['IRRECUPERABLE', 'LEVE', 'DE SONIDO'], 'El kernel no puede seguir de forma segura y se detiene.'],
+      ['El SO habla con cada dispositivo mediante...', ['DRIVERS', 'PÍXELES', 'VENTILADORES'], 'Los drivers traducen entre el SO y cada dispositivo.'],
+      ['¿Qué es un proceso?', ['PROGRAMA ACTIVO', 'UN CABLE', 'UN PUERTO'], 'Un programa en ejecución, con su memoria y su estado.']
+    ]
+  }
+};
+const quickQ = a => ({ q: a[0], o: a[1], why: a[2] });
+for (const id in GUARDIAN_SPECS) {
+  const sp = GUARDIAN_SPECS[id], Q = GUARDIAN_QUICK[id];
+  sp.hp *= 3; // el triple de vida: más fases de combate y tres consultas (75 %, 50 %, 25 %)
+  if (!Q) continue;
+  sp.special = Q.special;
+  sp.qs.forEach((q, i) => { if (Q.linked[i]) q.quick = quickQ(Q.linked[i]); });
+  sp.quickPool = Q.pool.map(quickQ);
+}
 // La visibilidad del PÁNICO se respeta al dibujar (invisible: sólo un rastro de «0x0000»)
 const _gRender = Guardian.prototype.render;
 Guardian.prototype.render = function (g, W) {

@@ -39,7 +39,8 @@ class Player {
     this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
-    this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1));
+    this.enLockT = Math.max(0, (this.enLockT || 0) - dt); this.lostT = Math.max(0, (this.lostT || 0) - dt);
+    if (!this.enLockT) this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1)); // (bloqueada tras un ataque especial)
     if (this.recall) { this.recall.t -= dt; if (this.recall.t <= 0) { this.recall = null; UI.toast('REGISTRO R7 LIBERADO', PAL.gray); } }
     this.animT += dt;
     if (this.dead) return;
@@ -163,31 +164,33 @@ class Player {
     if (Settings.data.assist) return;
     this.hp -= dmg; W.damageTaken = true;
     if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5);
-    if (this.hp <= 0 && Chips.on('watchdog') && !W.v.watchdogUsed) {
+    if (this.hp <= 0) this.down(W);
+  }
+  // sin salud: el chip WATCHDOG reinicia una vez; si no, derrota (cinemática y vuelta al punto de guardado)
+  down(W) {
+    if (Chips.on('watchdog') && !W.v.watchdogUsed) {
       W.v.watchdogUsed = true; this.hp = 2; this.invuln = 2;
       AudioSys.play('levelup'); W.flash(PAL.green, 0.3); UI.toast('WATCHDOG: REINICIO DE EMERGENCIA (2 ♥)', PAL.green);
       W.particles.burst(this.cx, this.y + 8, 30, { col: [PAL.green, PAL.white], kind: 'bit', max: 100 });
       return;
     }
-    if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
+    this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W);
   }
   // ATAQUE ESPECIAL de un jefe (pregunta rápida fallada): ocurre dentro de su cinemática, así que ignora
-  // el modo calma; quita salud y energía, pero nunca el último ♥. Devuelve { hp, en } (lo perdido).
+  // el modo calma, y ni el chip POST lo detiene (sólo una respuesta correcta lo desvía). Quita salud
+  // —puede derrotar— y la energía, cuya recarga queda bloqueada unos segundos. Devuelve { hp, en }.
   specialHit(W, dmg, frac) {
     if (this.dead) return { hp: 0, en: 0 };
     const assist = Settings.data.assist, maxE = Progression.maxEnergy();
     const en = Math.min(this.energy, maxE * frac * (assist ? 0.5 : 1));
-    this.energy -= en;
+    this.energy -= en; this.enLockT = assist ? 0 : 3;
     this.hurtT = 0.4; this.invuln = Math.max(this.invuln, 1.5);
     if (this.grounded && !this.climbing) this.vy = -140;
     AudioSys.play('hurt');
-    if (this.postShield) {
-      this.postShield = false; dmg--;
-      AudioSys.play('shield'); floatText(W, this.cx, this.y - 26, 'POST: ABSORBIÓ 1 ♥', PAL.cyan);
-    }
     let hp = 0;
-    if (!assist) { hp = clamp(Math.min(dmg, this.hp - 1), 0, dmg); this.hp -= hp; }
+    if (!assist) { hp = Math.min(dmg, this.hp); this.lostFrom = this.hp; this.lostT = 1.6; this.hp -= hp; }
     if (hp) { W.damageTaken = true; if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5); }
+    if (this.hp <= 0) this.down(W);
     return { hp, en: Math.round(en / maxE * 100) };
   }
   heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }

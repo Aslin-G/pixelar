@@ -5300,7 +5300,7 @@ class World {
     if (!k) { this.tip('noab', 'Aún no tienes habilidades. Se desbloquean reparando cada región.'); return; }
     const a = ABILITIES[k];
     if (p.cds[k] > 0) return;
-    if (p.energy < a.cost) { UI.toast('ENERGÍA INSUFICIENTE', PAL.red); AudioSys.play('ui_back'); return; }
+    if (p.energy < a.cost) { UI.toast('ENERGÍA INSUFICIENTE' + (p.enLockT > 0 ? ' · RECARGA BLOQUEADA ' + Math.ceil(p.enLockT) + ' s' : ''), PAL.red); AudioSys.play('ui_back'); return; }
     const ok = this['ab_' + k](p, a);
     if (ok !== false) { p.energy -= a.cost; p.cds[k] = a.cd; p.abilityPose = 0.3; }
   }
@@ -5739,7 +5739,8 @@ class Player {
     this.abilityPose = Math.max(0, this.abilityPose - dt); this.attackCd = Math.max(0, this.attackCd - dt); this.graceT = Math.max(0, (this.graceT || 0) - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt); this.dropT = Math.max(0, this.dropT - dt);
     const maxE = Progression.maxEnergy();
-    this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1));
+    this.enLockT = Math.max(0, (this.enLockT || 0) - dt); this.lostT = Math.max(0, (this.lostT || 0) - dt);
+    if (!this.enLockT) this.energy = Math.min(maxE, this.energy + dt * 13 * (Chips.on('vrm') ? 1.6 : 1) * (Chips.on('overclock') ? 0.7 : 1)); // (bloqueada tras un ataque especial)
     if (this.recall) { this.recall.t -= dt; if (this.recall.t <= 0) { this.recall = null; UI.toast('REGISTRO R7 LIBERADO', PAL.gray); } }
     this.animT += dt;
     if (this.dead) return;
@@ -5863,31 +5864,33 @@ class Player {
     if (Settings.data.assist) return;
     this.hp -= dmg; W.damageTaken = true;
     if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5);
-    if (this.hp <= 0 && Chips.on('watchdog') && !W.v.watchdogUsed) {
+    if (this.hp <= 0) this.down(W);
+  }
+  // sin salud: el chip WATCHDOG reinicia una vez; si no, derrota (cinemática y vuelta al punto de guardado)
+  down(W) {
+    if (Chips.on('watchdog') && !W.v.watchdogUsed) {
       W.v.watchdogUsed = true; this.hp = 2; this.invuln = 2;
       AudioSys.play('levelup'); W.flash(PAL.green, 0.3); UI.toast('WATCHDOG: REINICIO DE EMERGENCIA (2 ♥)', PAL.green);
       W.particles.burst(this.cx, this.y + 8, 30, { col: [PAL.green, PAL.white], kind: 'bit', max: 100 });
       return;
     }
-    if (this.hp <= 0) { this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W); }
+    this.hp = 0; this.dead = true; W.particles.burst(this.cx, this.y + 8, 40, { col: [PAL.cyan, PAL.white, PAL.violet], kind: 'bit', max: 120, lmax: 1.2 }); Game.playerDied(W);
   }
   // ATAQUE ESPECIAL de un jefe (pregunta rápida fallada): ocurre dentro de su cinemática, así que ignora
-  // el modo calma; quita salud y energía, pero nunca el último ♥. Devuelve { hp, en } (lo perdido).
+  // el modo calma, y ni el chip POST lo detiene (sólo una respuesta correcta lo desvía). Quita salud
+  // —puede derrotar— y la energía, cuya recarga queda bloqueada unos segundos. Devuelve { hp, en }.
   specialHit(W, dmg, frac) {
     if (this.dead) return { hp: 0, en: 0 };
     const assist = Settings.data.assist, maxE = Progression.maxEnergy();
     const en = Math.min(this.energy, maxE * frac * (assist ? 0.5 : 1));
-    this.energy -= en;
+    this.energy -= en; this.enLockT = assist ? 0 : 3;
     this.hurtT = 0.4; this.invuln = Math.max(this.invuln, 1.5);
     if (this.grounded && !this.climbing) this.vy = -140;
     AudioSys.play('hurt');
-    if (this.postShield) {
-      this.postShield = false; dmg--;
-      AudioSys.play('shield'); floatText(W, this.cx, this.y - 26, 'POST: ABSORBIÓ 1 ♥', PAL.cyan);
-    }
     let hp = 0;
-    if (!assist) { hp = clamp(Math.min(dmg, this.hp - 1), 0, dmg); this.hp -= hp; }
+    if (!assist) { hp = Math.min(dmg, this.hp); this.lostFrom = this.hp; this.lostT = 1.6; this.hp -= hp; }
     if (hp) { W.damageTaken = true; if (W.nexo && !W.nexo.hidden) W.nexo.emote('WORRIED', 1.5); }
+    if (this.hp <= 0) this.down(W);
     return { hp, en: Math.round(en / maxE * 100) };
   }
   heal(n) { this.hp = Math.min(Chips.maxHp(), this.hp + n); }
@@ -7422,9 +7425,11 @@ const Game = {
     PROG.checkpoint = null;
     this.push(new LevelCompleteState(W));
   },
+  // sin salud: el mundo se congela en el instante del golpe y empieza la cinemática de derrota
   playerDied(W) {
+    if (this.stack.some(s => s instanceof GameOverState)) return;
     PROG.stats.deaths++;
-    W.run(function* () { yield 0.8; Game.push(new GameOverState(W)); }, 'death');
+    this.push(new GameOverState(W));
   }
 };
 const Perf = { fps: 60, acc: 0, frames: 0, slow: 0,
@@ -7478,11 +7483,13 @@ function drawHUD(g, W, st) {
   g.fillStyle = 'rgba(5,9,13,0.86)'; g.fillRect(4, 4, 132, 34);
   g.fillStyle = PAL.panelB; g.fillRect(4, 38, 132, 1);
   const mh = Chips.maxHp();
-  for (let i = 0; i < mh; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? (i >= PROG.maxHp ? '#FF9ED8' : PAL.red) : '#3A1A20');
+  const lost = p.lostT > 0 && Math.floor(p.lostT * 8) % 2 === 0; // corazones recién perdidos: parpadean
+  for (let i = 0; i < mh; i++) Font.draw(g, '♥', 8 + i * 9, 5, i < p.hp ? (i >= PROG.maxHp ? '#FF9ED8' : PAL.red) : lost && i < p.lostFrom ? PAL.white : '#3A1A20');
   if (p.postShield) Font.draw(g, '◆', 10 + mh * 9, 5, Math.floor(W.t * 3) % 2 ? PAL.cyan : '#9FF6FF');
   if (Settings.data.assist) Font.draw(g, 'ASIST.', 132, 5, PAL.gray, { align: 'right' });
-  Font.draw(g, 'EN', 8, 15, PAL.cyan);
-  UI.bar(g, 22, 19, 108, 4, p.energy / Progression.maxEnergy(), PAL.cyan);
+  const enLock = p.enLockT > 0, enBlink = enLock && Math.floor(W.t * 6) % 2 === 0; // recarga bloqueada (ataque especial)
+  Font.draw(g, 'EN', 8, 15, enLock ? PAL.red : PAL.cyan);
+  UI.bar(g, 22, 19, 108, 4, p.energy / Progression.maxEnergy(), PAL.cyan, enBlink ? '#5A1020' : undefined);
   const lv = PROG.playerLevel, a0 = Progression.prevAt(lv), a1 = Progression.nextAt(lv);
   Font.draw(g, 'NV' + lv, 8, 25, PAL.green);
   UI.bar(g, 30, 29, 100, 3, (PROG.xp - a0) / Math.max(1, a1 - a0), PAL.green);
@@ -8074,19 +8081,107 @@ class LevelCompleteState {
     if (this.t > 0.8) Font.draw(g, '[' + Input.label('interact') + '] Continuar', 240, 222, PAL.green, { align: 'center' });
   }
 }
+// DERROTA: cinemática para que el estudiante entienda que perdió toda su salud y que volverá al último
+// punto de guardado. El mundo se congela en el instante del golpe; un iris se cierra sobre BYTE, que se
+// deshace en bits; aparecen los corazones vacíos y la explicación. Sólo continúa cuando el estudiante lo pide.
 class GameOverState {
-  constructor(Wd) { this.overlay = true; this.W = Wd; this.t = 0; AudioSys.play('powerdown', { caption: '[apagado del sistema]' }); }
+  constructor(Wd) {
+    this.overlay = true; this.updateBelow = false; this.W = Wd; this.t = 0; this.out = 0; this.cues = {};
+    const p = Wd.player;
+    this.wx = p.cx; this.wy = p.y + p.h / 2; this.px = p.x; this.py = p.y; this.flip = p.facing < 0;
+    this.maxHp = Chips.maxHp();
+    this.cp = !!(PROG.checkpoint && PROG.checkpoint.level === Wd.index);
+    this.cause = Wd.v.deathCause || null;
+    const c = this.cause;
+    this.lines = UI.wrap((c ? 'Te alcanzó ' + c.what + '. ' + (c.answer ? 'La respuesta correcta era «' + c.answer + '». ' : '') : '') + 'Tus puntos de salud llegaron a 0 y el sistema se detuvo.', 380).slice(0, 3);
+    this.where = UI.wrap(this.cp ? 'Volverás a tu último punto de guardado (checkpoint) con la salud completa.' : 'Volverás al inicio de este nivel con la salud completa.', 380).slice(0, 2);
+    Wd.barks.length = 0; Wd.tipBox = null;
+    AudioSys.stopMusic();
+  }
+  cue(k, at, fn) { if (this.t >= at && !this.cues[k]) { this.cues[k] = true; fn(); } }
+  get ready() { return this.t >= 3.4; }
+  retry() { if (this.out || !this.ready) return; this.out = 0.001; AudioSys.play('ui_ok'); }
   update(dt) {
     this.t += dt;
-    if (this.t > 2.6) { Game.pop(); Game.loadLevel(this.W.index, { fromCheckpoint: true }); }
+    if (this.t > 0.4) { this.W.shakeT = 0; this.W.flashT = 0; } // (el mundo está congelado: sin temblor ni destello fijo)
+    this.cue('down', 0.15, () => AudioSys.play('powerdown', { caption: '[apagado del sistema]' }));
+    this.cue('hb1', 0.7, () => AudioSys.play('heartbeat', { caption: '[latido que se apaga]' }));
+    this.cue('hb2', 1.7, () => AudioSys.play('heartbeat'));
+    this.cue('ui', 3.4, () => AudioSys.play('ui_move'));
+    if (this.out) { this.out += dt; if (this.out > 0.5) { if (Game.top() === this) Game.pop(); Game.loadLevel(this.W.index, { fromCheckpoint: true }); } return; }
+    if (!this.ready) return;
+    const b = this.btn;
+    if (Input.pressed('confirm') || Input.pressed('attack') || (b && UI.clicked(b.x, b.y, b.w, b.h))) this.retry();
+  }
+  // oscuridad con un hueco circular alrededor de BYTE (en franjas de 2 px, a juego con el pixel art)
+  iris(g, cx, cy, r, a) {
+    g.fillStyle = 'rgba(4,3,10,' + a + ')';
+    if (r <= 0) { g.fillRect(0, 0, W, H); return; }
+    for (let y = 0; y < H; y += 2) {
+      const dy = y + 1 - cy, dx = Math.abs(dy) < r ? Math.sqrt(r * r - dy * dy) : 0;
+      if (!dx) { g.fillRect(0, y, W, 2); continue; }
+      const x0 = Math.max(0, Math.round(cx - dx)), x1 = Math.min(W, Math.round(cx + dx));
+      if (x0 > 0) g.fillRect(0, y, x0, 2);
+      if (x1 < W) g.fillRect(x1, y, W - x1, 2);
+    }
+    if (r < 200 && !Settings.data.reduceFlash) { g.fillStyle = PAL.red; for (let k = 0; k < 48; k++) { const an = k / 48 * Math.PI * 2 + this.t; g.fillRect(Math.round(cx + Math.cos(an) * r), Math.round(cy + Math.sin(an) * r), 1, 1); } }
   }
   render(g) {
-    g.fillStyle = 'rgba(0,0,0,' + Math.min(0.9, this.t) + ')'; g.fillRect(0, 0, W, H);
-    if (!Settings.data.reduceFlash) for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(69,229,255,0.08)'; g.fillRect(0, randi(0, H), W, randi(1, 3)); }
-    Font.draw(g, 'SYSTEM STATE LOST', 240, 110, PAL.cyan, { align: 'center', s: 2 });
-    Font.draw(g, 'Restaurando checkpoint' + '...'.slice(0, 1 + Math.floor(this.t * 3) % 3), 240, 138, PAL.grayL, { align: 'center' });
-    UI.bar(g, 170, 156, 140, 3, this.t / 2.6, PAL.cyan);
-    Font.draw(g, 'El error es información, no un veredicto.', 240, 172, PAL.gray, { align: 'center' });
+    const t = this.t, cam = this.W.cam, cx = Math.round(this.wx - cam.x), cy = Math.round(this.wy - cam.y);
+    // 1) impacto: destello rojo
+    if (t < 0.35 && !Settings.data.reduceFlash) { g.fillStyle = 'rgba(255,60,80,' + (0.45 * (1 - t / 0.35)) + ')'; g.fillRect(0, 0, W, H); }
+    // 2) el iris se cierra sobre BYTE
+    const r = t < 0.35 ? 260 : t < 1.9 ? lerp(220, 30, easeInOut((t - 0.35) / 1.55)) : t < 2.6 ? lerp(30, 0, (t - 1.9) / 0.7) : 0;
+    this.iris(g, cx, cy, r, clamp((t - 0.1) / 0.5, 0, 1) * 0.94);
+    // 3) BYTE herido que se deshace en bits
+    if (t < 2.4) {
+      const sheet = Sprites.byte[PROG.flags.byteLow ? 'low' : 'normal'], fr = (sheet.hurt || sheet.idle)[0];
+      g.globalAlpha = t < 0.9 ? 1 : clamp(1 - (t - 0.9) / 1.0, 0, 1);
+      if (Math.floor(t * 12) % 2 === 0 || t > 0.9) drawSprite(g, fr, Math.round(this.px - cam.x - 4), Math.round(this.py - cam.y + 15 - 21), this.flip);
+      g.globalAlpha = 1;
+      if (t > 0.6) for (let i = 0; i < 26; i++) {
+        const k = ((t - 0.6) * 0.9 + i * 0.037) % 1, a = (1 - k) * clamp((2.4 - t) / 0.6, 0, 1);
+        g.globalAlpha = a; g.fillStyle = i % 3 ? PAL.cyan : PAL.white;
+        g.fillRect(Math.round(cx + Math.sin(i * 12.9898) * 9 + Math.sin(t * 3 + i) * 2), Math.round(cy + 6 - k * 46), 2, 2);
+      }
+      g.globalAlpha = 1;
+    }
+    // 4) corazones vacíos y título
+    if (t > 0.6) {
+      const n = this.maxHp, hw = 20, x0 = Math.round(W / 2 - (n * hw) / 2);
+      g.fillStyle = '#08040C'; g.fillRect(x0 - 10, 30, n * hw + 20, 26);
+      for (let i = 0; i < n; i++) {
+        const show = t > 0.6 + i * 0.08; if (!show) continue;
+        const last = i === n - 1, crack = last && t > 1.1 && t < 1.35 && !Settings.data.reduceFlash;
+        Font.draw(g, '♥', x0 + i * hw + hw / 2, 33, crack ? PAL.white : '#4A1A26', { align: 'center', s: 2 });
+      }
+    }
+    if (t > 1.1) {
+      g.globalAlpha = clamp((t - 1.1) / 0.4, 0, 1);
+      const title = '¡HAS PERDIDO TODA TU SALUD!', tw = Font.measure(title, 2) + 20, sh = t < 1.6 && !Settings.data.reduceFlash ? Math.round(Math.sin(t * 60) * 2) : 0;
+      g.fillStyle = '#08040C'; g.fillRect(W / 2 - tw / 2, 60, tw, 38);
+      Font.draw(g, title, W / 2 + sh, 62, PAL.red, { align: 'center', s: 2 });
+      Font.draw(g, '♥ 0 / ' + this.maxHp + '   ·   SISTEMA DETENIDO', W / 2, 86, PAL.grayL, { align: 'center' });
+      g.globalAlpha = 1;
+    }
+    // 5) qué ha pasado y qué ocurrirá ahora
+    if (t > 2.6) {
+      g.globalAlpha = clamp((t - 2.6) / 0.5, 0, 1);
+      const py = 102, ph = 97 + (this.lines.length + this.where.length) * 12;
+      UI.panel(g, 40, py, 400, ph, { border: PAL.red, fill: '#0A0610' });
+      let y = py + 8;
+      Font.drawLines(g, this.lines, 50, y, PAL.white, { hl: PAL.amber }); y += this.lines.length * 12 + 6;
+      Font.drawLines(g, this.where, 50, y, PAL.cyan); y += this.where.length * 12 + 6;
+      Font.draw(g, 'Conservas tu experiencia y todo lo que has aprendido.', 50, y, PAL.green); y += 18;
+      Font.draw(g, 'El error es información, no un veredicto.', 50, y, PAL.gray); y += 22;
+      const on = this.ready && Math.floor(t * 2.5) % 2 === 0;
+      this.btn = { x: W / 2 - 80, y, w: 160, h: 15 };
+      UI.button(g, this.btn.x, y, 160, 15, 'REINTENTAR', this.ready, { color: on ? PAL.green : PAL.cyan, disabled: !this.ready });
+      if (this.ready) UI.keyHints(g, [['ENTER', 'Reintentar']], W / 2, y + 19, 'center');
+      g.globalAlpha = 1;
+    }
+    // 6) fundido al reintentar
+    if (this.out) { g.fillStyle = 'rgba(0,0,0,' + clamp(this.out / 0.5, 0, 1) + ')'; g.fillRect(0, 0, W, H); }
   }
 }
 
@@ -10196,7 +10291,7 @@ const LEVEL8 = {
       if (W.v.escT <= 0 && !W.player.dead) {
         W.v.escT = 0;
         W.bark('NEXO', '¡BYTE! ¡La zona se desploma!', 'AFRAID', 2);
-        W.player.dead = true;
+        W.player.dead = true; W.player.hp = 0; W.v.deathCause = { what: 'el derrumbe de la zona (se agotó el tiempo)' };
         W.particles.burst(W.player.cx, W.player.y + 8, 40, { col: [PAL.cyan, PAL.white], kind: 'bit', max: 120 });
         Game.playerDied(W);
       }
@@ -11347,7 +11442,8 @@ const LEVEL_PRESETS = LEVELS.map((L, i) => {
 //   E) al orbe correcto. Acertar lo deja VULNERABLE (daño doble).
 // · ATAQUE ESPECIAL: si la respuesta es incorrecta, el guardián carga un ataque (cinemática) y, mientras
 //   carga, lanza una PREGUNTA RÁPIDA sobre la misma idea. Acertarla desvía el ataque contra él; fallarla
-//   (o agotar el tiempo) hace que golpee a BYTE: le quita salud y energía (nunca el último ♥).
+//   (o agotar el tiempo) hace que golpee a BYTE: le quita 2 ♥ (puede derrotarlo; ni el chip POST lo para)
+//   y toda la energía, cuya recarga queda bloqueada 3 s.
 // · DEBILIDAD: la habilidad aprendida en la región (como en Mega Man, pero con sentido: el concepto
 //   que acabas de entender es lo que desmonta el fallo).
 // · Arena al final del nivel: la compuerta se abre al completar la región, se cierra durante el
@@ -11959,7 +12055,8 @@ function* bossSpecial(W, o) {
       S.blast = null; S.charge = 0;
       W.shake(7, 0.6); W.flash(PAL.red, 0.35);
       W.particles.burst(to.x, to.y, 40, { col: [S.col, PAL.red, PAL.white], max: 150, lmax: 1 });
-      const lost = p.specialHit(W, o.dmg || 2, o.drain || 0.6);
+      W.v.deathCause = { what: 'el ataque especial «' + o.name + '»', answer: q.o[0], why: q.why }; // (por si derrota a BYTE)
+      const lost = p.specialHit(W, o.dmg || 2, o.drain || 1);
       floatText(W, p.cx, p.y - 16, (res && res.timeout ? '¡TIEMPO! ' : '') + (lost.hp ? '-' + lost.hp + ' ♥  ' : '') + '-' + lost.en + ' % EN', PAL.red);
       if (o.onHit) o.onHit(W);
       W.bark(guide(), '✗ Era «' + q.o[0] + '». ' + q.why, 'WORRIED', 6);
@@ -11967,7 +12064,7 @@ function* bossSpecial(W, o) {
     yield 0.6;
   } finally {
     // pase lo que pase (incluso un error), el jefe y el control vuelven a su estado
-    W.v.gSpecial = null; W.camFollow();
+    W.v.gSpecial = null; W.v.deathCause = null; W.camFollow();
     if (B.state === 'special') B.state = restore === 'special' ? 'quiz' : restore;
     W.unlock();
   }
@@ -12705,7 +12802,7 @@ for (const L of LEVELS) if (L.guardian && L.hint) { const h0 = L.hint; L.hint = 
 // ---------------------------------------------------------------- FIRMWARE ----
 // Como en la RAM real, la memoria de firmware es limitada: hay que elegir qué cargar.
 const CHIPS = {
-  post: { n: 'POST', kb: 2, lv: 0, d: 'Al entrar en un nivel o activar un checkpoint, un escudo absorbe el siguiente golpe.', why: 'El POST (Power-On Self-Test) comprueba el hardware al arrancar para empezar desde un estado seguro.' },
+  post: { n: 'POST', kb: 2, lv: 0, d: 'Al entrar en un nivel o activar un checkpoint, un escudo absorbe el siguiente golpe (no los ataques especiales).', why: 'El POST (Power-On Self-Test) comprueba el hardware al arrancar para empezar desde un estado seguro.' },
   vrm: { n: 'VRM ESTABLE', kb: 1, lv: 1, d: 'La energía de las habilidades se regenera un 60 % más rápido.', why: 'Un VRM entrega un voltaje estable: más energía útil y menos desperdicio.' },
   pipeline: { n: 'PIPELINE', kb: 2, lv: 2, d: 'DEBUG PING dispara un 60 % más rápido.', why: 'La segmentación solapa etapas: más instrucciones terminadas por segundo.' },
   alu: { n: 'ALU EXTENDIDA', kb: 2, lv: 3, d: 'Los disparos llegan un 40 % más lejos y atraviesan a un enemigo.', why: 'Una ALU más ancha opera con más bits en un solo paso.' },
@@ -13410,7 +13507,7 @@ const Registro = {
       else self.ev('nivel_inicio', { nivel: lvName(n), detalle: o.fromCheckpoint ? 'Continúa desde el último punto de control' : 'Entra en el nivel' });
     });
     wrap(Game, 'completeLevel', function (a) { const W = a[0]; self.ev('nivel_completado', { detalle: 'Nivel completado' + (W.damageTaken ? '' : ' sin perder salud'), tiempo: W.levelTime, datos: { muertesTotales: PROG.stats.deaths } }); });
-    wrap(Game, 'playerDied', function (a) { const W = a[0]; self.ev('muerte', { detalle: 'Se queda sin energía', datos: { x: Math.floor(W.player.x / TS), y: Math.floor(W.player.y / TS) } }); });
+    wrap(Game, 'playerDied', function (a) { const W = a[0], c = W.v.deathCause; self.ev('muerte', { detalle: 'Pierde toda su salud' + (c ? ': ' + c.what : ''), datos: { x: Math.floor(W.player.x / TS), y: Math.floor(W.player.y / TS) } }); });
     wrap(GameplayState.prototype, 'worldHint', function () { self.ev('pista', { detalle: 'Pide una pista [H]' }); });
     wrap(Guardian.prototype, 'defeat', function () { self.ev('guardian_vencido', { detalle: 'Vence a ' + this.spec.name, concepto: CONCEPTS[this.spec.concept] || '', valor: this.quizWrong ? this.quizWrong + ' consulta(s) fallada(s)' : 'consultas perfectas' }); });
     // sesión: al ocultar o cerrar la página se envía lo pendiente

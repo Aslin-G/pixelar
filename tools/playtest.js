@@ -47,7 +47,8 @@ const shots = process.argv[4];
           BOT.quick = BOT.quick || { ok: 0, bad: 0 }; BOT.quick[i === good ? 'ok' : 'bad']++;
           BOT.log.push('quick ' + (i === good ? 'ok' : 'mal') + ': ' + st.q.q); st.finish(i);
         }
-      } else if (n === 'ReaderState') { Game.pop(); if (st.o.onDone) st.o.onDone(); }
+      } else if (n === 'GameOverState') { if (st.ready) st.retry(); }
+      else if (n === 'ReaderState') { Game.pop(); if (st.o.onDone) st.o.onDone(); }
       else if (['BlueprintState', 'CodexState', 'QuestLogState', 'MemoriesState', 'ProgressState'].includes(n)) { st.__botT = (st.__botT || 0) + 1; if (st.__botT > 30) { BOT.log.push('cerrar ' + n); Game.pop(); } }
       else if (n === 'LevelCompleteState') { if (st.t > 0.3) { BOT.log.push('LEVEL COMPLETE ' + st.W.index); BOT.completed = st.W.index; const next = st.W.def.next != null ? st.W.def.next : st.W.index + 1; Game.pop(); Game.loadLevel(next); } }
     }

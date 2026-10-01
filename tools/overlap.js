@@ -134,7 +134,11 @@ const shots = process.argv[2];
     for (const id of Object.keys(FRAGMENTS)) { const f = FRAGMENTS[id]; const r = new ReaderState('MEMORY FRAGMENT — ' + f.title, f.text, { style: 'memory' }); r.chars = 1e9; Game.push(r); OV.capture('Lector ' + id); r.scroll = 99; OV.capture('Lector ' + id + ' fin'); Game.pop(); }
     for (const id of Object.keys(HISTORIC)) { const hh = HISTORIC[id]; const r = new ReaderState(hh.title || hh.name || id, hh.text || '', { style: 'archive' }); r.chars = 1e9; Game.push(r); OV.capture('Histórico ' + id); Game.pop(); }
     Game.push(new LevelCompleteState(Game.world)); OV.frames(120); OV.capture('Nivel completado'); Game.pop();
-    Game.push(new GameOverState(Game.world)); OV.frames(60); OV.capture('Game over'); Game.pop();
+    for (const cause of [null, { what: 'el ataque especial «IRQ NO ENMASCARABLE»', answer: 'LA PRIORIDAD', why: '' }]) {
+      Game.world.v.deathCause = cause; const go = new GameOverState(Game.world); Game.push(go);
+      for (const t of [0.2, 0.8, 1.5, 2.2, 3, 4]) { go.t = t; OV.frames(1); OV.capture('Derrota ' + (cause ? 'por ataque especial' : 'normal') + ' t' + t); }
+      Game.pop(); Game.world.v.deathCause = null;
+    }
     Game.push(new ReportState({ ending: true })); OV.frames(120); OV.capture('Informe final'); Game.pop();
     return 0;
   });

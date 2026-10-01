@@ -150,9 +150,11 @@ const ok = (c, m) => { if (!c) fails++; console.log((c ? '✓ ' : '✗ ') + m); 
     run((qs ? qs.o.time : 0) + 3, () => { minEn = Math.min(minEn, p.energy); });
     out.b.player = { hp: p.hp, en: Math.round(minEn / Progression.maxEnergy() * 100) };
     out.b.after = { state: B.state, lock: W.lockCount, top: Game.top().constructor.name, wrong: B.quizWrong };
-    // (c) nunca quita el último ♥, y el chip POST absorbe un punto
-    const hit1 = (hp, post) => { p.hp = hp; p.postShield = post; const r = p.specialHit(W, 2, 0.6); return [p.hp, r.hp, p.postShield, p.dead]; };
-    out.c = { last: hit1(1, false), post: hit1(5, true), two: hit1(2, false) };
+    // (c) quita 2 ♥ aunque haya escudo POST (sólo una respuesta correcta lo desvía) y vacía la energía,
+    //     cuya recarga queda bloqueada unos segundos; en modo asistido no quita salud
+    const hit1 = (hp, post) => { p.hp = hp; p.postShield = post; p.energy = Progression.maxEnergy(); const r = p.specialHit(W, 2, 1); return [p.hp, r.hp, p.postShield, p.dead, Math.round(p.energy), r.en]; };
+    out.c = { post: hit1(5, true), three: hit1(3, false) };
+    run(1); out.c.lockedEn = Math.round(p.energy); run(3); out.c.backEn = Math.round(p.energy);
     Settings.data.assist = true; out.c.assist = hit1(4, false); Settings.data.assist = false;
     // (d) responder bien la consulta tras el ataque sigue funcionando
     const good = W.v.gQuiz.orbs.find(o => o.ok); good.choose(W); run(0.2);
@@ -179,6 +181,15 @@ const ok = (c, m) => { if (!c) fails++; console.log((c ? '✓ ' : '✗ ') + m); 
     if (ch) { ch.resultOk = true; ch.phase = 'result'; ch.afterResult(); }
     let sawQuick = false; run(2, (t, n) => { if (n === 'QuickQuestionState') sawQuick = true; });
     out.e.firstTry = { quick: sawQuick, state: CB.state, hits: C.hits };
+    // (f) sin salud, el ataque especial derrota: cinemática que espera al estudiante y muestra la respuesta
+    startTeacherLevel(0); W = Game.world; W.pending.length = 0; run(0.2); p = W.player; p.hp = 2;
+    W.v.deathCause = { what: 'el ataque especial «PRUEBA»', answer: 'RAM', why: '' };
+    p.specialHit(W, 2, 1);
+    const go = Game.top();
+    out.f = { dead: p.dead, top: go.constructor.name, frozen: !go.updateBelow, cause: go.lines.join(' ') };
+    run(3); out.f.waiting = Game.top() === go && !go.ready;
+    run(4); go.retry(); out.f.fading = go.out > 0; run(1);
+    out.f.after = { top: Game.top().constructor.name, hp: Game.world.player.hp, dead: Game.world.player.dead };
     return out;
   });
   ok(S.hp.bootloop === 48 && S.hp.thresholds.length === 3 && S.hp.special && S.hp.quick && S.hp.pool === 3 && S.fight === 'fight', 'guardianes con el triple de vida, 3 consultas y preguntas rápidas ' + JSON.stringify(S.hp) + ' ' + S.fight);
@@ -186,7 +197,8 @@ const ok = (c, m) => { if (!c) fails++; console.log((c ? '✓ ' : '✗ ') + m); 
   ok(S.a.stateAfterWrong === 'special' && S.a.ignoredSecond && S.a.quickShown && S.a.lockedDuring && S.a.why && S.a.linked, 'consulta fallada → ataque especial con pregunta rápida ligada (y explicación del error) ' + JSON.stringify(S.a));
   ok(S.a.bossHp[1] < S.a.bossHp[0] && S.a.floorOk && S.a.player[1] === S.a.player[0] && S.a.after.state === 'quiz' && S.a.after.lock === 0 && !S.a.after.special && S.a.after.top === 'GameplayState', 'pregunta rápida acertada: el ataque se desvía y daña al guardián ' + JSON.stringify(S.a));
   ok(S.b.pool && S.b.player.hp === 3 && S.b.player.en <= 45 && S.b.after.state === 'quiz' && S.b.after.lock === 0 && S.b.after.top === 'GameplayState' && S.b.after.wrong === 2, 'tiempo agotado: el ataque quita salud y energía y la consulta sigue ' + JSON.stringify(S.b));
-  ok(S.c.last[0] === 1 && !S.c.last[3] && S.c.post[0] === 4 && !S.c.post[2] && S.c.two[0] === 1 && S.c.assist[0] === 4, 'el ataque especial nunca quita el último ♥; POST absorbe 1; modo asistido sin daño ' + JSON.stringify(S.c));
+  ok(S.c.post[0] === 3 && S.c.post[1] === 2 && S.c.post[2] && S.c.three[0] === 1 && S.c.post[4] === 0 && S.c.post[5] === 100 && S.c.lockedEn === 0 && S.c.backEn > 0 && S.c.assist[0] === 4, 'el ataque especial quita 2 ♥ (ni POST lo para) y toda la energía, con la recarga bloqueada; modo asistido sin daño ' + JSON.stringify(S.c));
+  ok(S.f.dead && S.f.top === 'GameOverState' && S.f.frozen && /RAM/.test(S.f.cause) && S.f.waiting && S.f.fading && S.f.after.top === 'GameplayState' && S.f.after.hp === 5 && !S.f.after.dead, 'sin salud: derrota con cinemática que espera al estudiante, muestra la respuesta correcta y reinicia con salud completa ' + JSON.stringify(S.f));
   ok(S.d.state === 'stun' && S.d.quizzesDone === 1, 'tras el ataque, acertar la consulta lo deja vulnerable ' + JSON.stringify(S.d));
   ok(S.e.state === 'console' && S.e.need === 9 && S.e.quick && S.e.specialState === 'special' && S.e.core.state === 'core' && S.e.core.hits === 3 && S.e.core.exposed && S.e.core.stab[1] > S.e.core.stab[0] - 3, 'CASCADE: consola con errores → ataque especial; desviarlo daña su núcleo (3/9) ' + JSON.stringify(S.e));
   ok(S.e.recompose.state === 'console' && S.e.recompose.interactive && !S.e.firstTry.quick && S.e.firstTry.state === 'core' && S.e.firstTry.hits === 0, 'CASCADE: al recomponerse el núcleo la consola vuelve a funcionar; a la primera no hay ataque ' + JSON.stringify(S.e));

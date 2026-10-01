@@ -480,7 +480,7 @@ const LEVEL8 = {
       if (W.v.escT <= 0 && !W.player.dead) {
         W.v.escT = 0;
         W.bark('NEXO', '¡BYTE! ¡La zona se desploma!', 'AFRAID', 2);
-        W.player.dead = true;
+        W.player.dead = true; W.player.hp = 0; W.v.deathCause = { what: 'el derrumbe de la zona (se agotó el tiempo)' };
         W.particles.burst(W.player.cx, W.player.y + 8, 40, { col: [PAL.cyan, PAL.white], kind: 'bit', max: 120 });
         Game.playerDied(W);
       }

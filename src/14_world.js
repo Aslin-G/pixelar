@@ -354,7 +354,7 @@ class World {
     if (!k) { this.tip('noab', 'Aún no tienes habilidades. Se desbloquean reparando cada región.'); return; }
     const a = ABILITIES[k];
     if (p.cds[k] > 0) return;
-    if (p.energy < a.cost) { UI.toast('ENERGÍA INSUFICIENTE', PAL.red); AudioSys.play('ui_back'); return; }
+    if (p.energy < a.cost) { UI.toast('ENERGÍA INSUFICIENTE' + (p.enLockT > 0 ? ' · RECARGA BLOQUEADA ' + Math.ceil(p.enLockT) + ' s' : ''), PAL.red); AudioSys.play('ui_back'); return; }
     const ok = this['ab_' + k](p, a);
     if (ok !== false) { p.energy -= a.cost; p.cds[k] = a.cd; p.abilityPose = 0.3; }
   }

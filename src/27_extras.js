@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------- FIRMWARE ----
 // Como en la RAM real, la memoria de firmware es limitada: hay que elegir qué cargar.
 const CHIPS = {
-  post: { n: 'POST', kb: 2, lv: 0, d: 'Al entrar en un nivel o activar un checkpoint, un escudo absorbe el siguiente golpe.', why: 'El POST (Power-On Self-Test) comprueba el hardware al arrancar para empezar desde un estado seguro.' },
+  post: { n: 'POST', kb: 2, lv: 0, d: 'Al entrar en un nivel o activar un checkpoint, un escudo absorbe el siguiente golpe (no los ataques especiales).', why: 'El POST (Power-On Self-Test) comprueba el hardware al arrancar para empezar desde un estado seguro.' },
   vrm: { n: 'VRM ESTABLE', kb: 1, lv: 1, d: 'La energía de las habilidades se regenera un 60 % más rápido.', why: 'Un VRM entrega un voltaje estable: más energía útil y menos desperdicio.' },
   pipeline: { n: 'PIPELINE', kb: 2, lv: 2, d: 'DEBUG PING dispara un 60 % más rápido.', why: 'La segmentación solapa etapas: más instrucciones terminadas por segundo.' },
   alu: { n: 'ALU EXTENDIDA', kb: 2, lv: 3, d: 'Los disparos llegan un 40 % más lejos y atraviesan a un enemigo.', why: 'Una ALU más ancha opera con más bits en un solo paso.' },

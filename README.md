@@ -166,8 +166,9 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
     lanza una **pregunta rápida** con cuenta atrás sobre la misma idea, vista desde otro ángulo; el panel
     muestra por qué la respuesta anterior era incorrecta, así que leer esa explicación ayuda a salvarse.
     Acertar **desvía el ataque** contra el guardián (le quita vida sin saltarse la siguiente consulta);
-    fallar o agotar el tiempo hace que golpee a BYTE: −2 ♥ (nunca el último; el chip POST absorbe uno)
-    y −60 % de energía. Se responde con ←→ y E, con las teclas 1–3 o con el ratón o el dedo; en modo
+    fallar o agotar el tiempo hace que golpee a BYTE: −2 ♥ (puede derrotarlo y ni el chip POST lo detiene:
+    sólo una respuesta correcta lo desvía) y toda la energía, cuya recarga queda bloqueada 3 s (los
+    corazones perdidos parpadean y la barra EN se pone en rojo). Se responde con ←→ y E, con las teclas 1–3 o con el ratón o el dedo; en modo
     asistido hay un 50 % más de tiempo y no se pierde salud. Vencer a un jefe sin fallar ninguna
     consulta da +40 XP y el logro **Consulta impecable**.
   - **Debilidad = lo que acabas de aprender**: RELOJ DESBOCADO se intercepta con FETCH DASH,
@@ -273,9 +274,9 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `overlap.js` | Detector de texto superpuesto: registra cada texto dibujado (ignorando lo tapado por paneles) en menús, desafíos, diálogos, cinemáticas y un barrido de cámara por todos los niveles |
 | `backtrack.js` | Vuelta atrás con la **física real** del jugador: simula cada movimiento (caminar, saltos con carrerilla, desde el borde o con giro en el aire, escaleras, plataformas móviles, FETCH DASH) y construye el grafo de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos. Repite el análisis con un margen (saltos ~10 % más bajos) para que volver nunca dependa de un salto perfecto |
 | `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL, módulos que vuelven a su sitio, puertas que siguen abiertas tras un checkpoint y la pista del Distrito de E/S |
-| `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado, último ♥, POST, modo asistido y CASCADE (sin bloqueo al recomponerse) |
+| `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado (−2 ♥ aunque haya POST, energía vacía y bloqueada), modo asistido, CASCADE (sin bloqueo al recomponerse) y la derrota por un ataque especial (cinemática que espera al estudiante y muestra la respuesta correcta) |
 | `registro.js` | Registro del estudiante con teclado real (validación, mayúsculas, campos sobre sus recuadros en móvil, ESC), nombre del protagonista en diálogos, desafíos y créditos, y el registro de actividad con la red interceptada: qué se envía con consentimiento, nada sin él, nada en modo docente ni sin URL, cola sin conexión, envío al cerrar, consentimiento obligatorio y que el registro no dibuja, no suena ni escribe en la consola |
-| `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red (sin registro configurado) |
+| `robust.js` | Muerte (la cinemática de derrota espera al estudiante) y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red (sin registro configurado) |
 
 ---
 
@@ -315,8 +316,11 @@ Decisiones propias tomadas al llevar los documentos de diseño a un juego jugabl
 13. **Búfer de módulos en el Boot Camp**: los módulos ENTRADA, PROCESO y MEMORIA que se recogen por el
     camino se copian al búfer de la Sala del Sistema, donde se resuelve el orden del flujo (así el
     tutorial enseña a moverse sin obligar a cargar bloques por escaleras).
-14. **«El error es información, no un veredicto»**: la pantalla de apagado tras perder toda la
-    energía refuerza el tono del juego; se reaparece en el último checkpoint.
+14. **«El error es información, no un veredicto»**: al perder toda la salud hay una cinemática de
+    derrota —el mundo se congela, un iris se cierra sobre BYTE, que se deshace en bits, y aparecen los
+    corazones vacíos— seguida de una explicación: qué pasó (si fue un ataque especial, cuál era la
+    respuesta correcta), dónde se reaparece (último checkpoint o inicio del nivel, con la salud completa)
+    y que se conservan la experiencia y lo aprendido. Sólo continúa cuando el estudiante pulsa REINTENTAR.
 15. **Guardianes que preguntan**: los jefes de región no sólo se esquivan: en mitad del combate hacen
     una CONSULTA y la respuesta se elige disparando al orbe correcto. Así la pregunta forma parte de la
     acción en lugar de detenerla, y un error no castiga con una derrota: descarta esa opción, explica

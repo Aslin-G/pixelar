@@ -36,11 +36,14 @@ const ok = (c, msg) => console.log((c ? '✓ ' : '✗ ') + msg);
     await page.evaluate(() => { const W = Game.world; for (let i = 0; i < 8; i++) { W.player.invuln = 0; W.player.hurt(W, 1, W.player.x, false); } });
     await page.waitForTimeout(1500);
     const st1 = await page.evaluate(() => Game.stack.map(s => s.constructor.name).join('>'));
+    await page.keyboard.press('Enter'); await page.waitForTimeout(300); // demasiado pronto: la cinemática sigue
     if (shots) await page.screenshot({ path: path.join(shots, 'r_gameover.png') });
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(4500);
+    const waiting = await page.evaluate(() => Game.top().constructor.name);
+    await page.keyboard.press('Enter'); await page.waitForTimeout(1200);
     const st2 = await page.evaluate(() => ({ top: Game.top().constructor.name, hp: Game.world.player.hp, x: Math.round(Game.world.player.x), deaths: PROG.stats.deaths }));
     ok(cpSaved, 'checkpoint registrado');
-    ok(st1.includes('GameOverState'), 'muerte → GameOverState (' + st1 + ')');
+    ok(st1.includes('GameOverState') && waiting === 'GameOverState', 'muerte → cinemática de derrota que espera al estudiante (' + st1 + ' · tras 6 s: ' + waiting + ')');
     ok(st2.top === 'GameplayState' && st2.hp > 0 && st2.deaths === 1, 'reinicio desde checkpoint ' + JSON.stringify(st2));
     // reiniciar checkpoint desde el menú de pausa
     await page.keyboard.press('Escape'); await page.waitForTimeout(300);

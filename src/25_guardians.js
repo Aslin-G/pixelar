@@ -6,7 +6,8 @@
 //   E) al orbe correcto. Acertar lo deja VULNERABLE (daño doble).
 // · ATAQUE ESPECIAL: si la respuesta es incorrecta, el guardián carga un ataque (cinemática) y, mientras
 //   carga, lanza una PREGUNTA RÁPIDA sobre la misma idea. Acertarla desvía el ataque contra él; fallarla
-//   (o agotar el tiempo) hace que golpee a BYTE: le quita salud y energía (nunca el último ♥).
+//   (o agotar el tiempo) hace que golpee a BYTE: le quita 2 ♥ (puede derrotarlo; ni el chip POST lo para)
+//   y toda la energía, cuya recarga queda bloqueada 3 s.
 // · DEBILIDAD: la habilidad aprendida en la región (como en Mega Man, pero con sentido: el concepto
 //   que acabas de entender es lo que desmonta el fallo).
 // · Arena al final del nivel: la compuerta se abre al completar la región, se cierra durante el
@@ -618,7 +619,8 @@ function* bossSpecial(W, o) {
       S.blast = null; S.charge = 0;
       W.shake(7, 0.6); W.flash(PAL.red, 0.35);
       W.particles.burst(to.x, to.y, 40, { col: [S.col, PAL.red, PAL.white], max: 150, lmax: 1 });
-      const lost = p.specialHit(W, o.dmg || 2, o.drain || 0.6);
+      W.v.deathCause = { what: 'el ataque especial «' + o.name + '»', answer: q.o[0], why: q.why }; // (por si derrota a BYTE)
+      const lost = p.specialHit(W, o.dmg || 2, o.drain || 1);
       floatText(W, p.cx, p.y - 16, (res && res.timeout ? '¡TIEMPO! ' : '') + (lost.hp ? '-' + lost.hp + ' ♥  ' : '') + '-' + lost.en + ' % EN', PAL.red);
       if (o.onHit) o.onHit(W);
       W.bark(guide(), '✗ Era «' + q.o[0] + '». ' + q.why, 'WORRIED', 6);
@@ -626,7 +628,7 @@ function* bossSpecial(W, o) {
     yield 0.6;
   } finally {
     // pase lo que pase (incluso un error), el jefe y el control vuelven a su estado
-    W.v.gSpecial = null; W.camFollow();
+    W.v.gSpecial = null; W.v.deathCause = null; W.camFollow();
     if (B.state === 'special') B.state = restore === 'special' ? 'quiz' : restore;
     W.unlock();
   }

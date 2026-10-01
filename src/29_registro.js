@@ -162,7 +162,7 @@ const Registro = {
       else self.ev('nivel_inicio', { nivel: lvName(n), detalle: o.fromCheckpoint ? 'Continúa desde el último punto de control' : 'Entra en el nivel' });
     });
     wrap(Game, 'completeLevel', function (a) { const W = a[0]; self.ev('nivel_completado', { detalle: 'Nivel completado' + (W.damageTaken ? '' : ' sin perder salud'), tiempo: W.levelTime, datos: { muertesTotales: PROG.stats.deaths } }); });
-    wrap(Game, 'playerDied', function (a) { const W = a[0]; self.ev('muerte', { detalle: 'Se queda sin energía', datos: { x: Math.floor(W.player.x / TS), y: Math.floor(W.player.y / TS) } }); });
+    wrap(Game, 'playerDied', function (a) { const W = a[0], c = W.v.deathCause; self.ev('muerte', { detalle: 'Pierde toda su salud' + (c ? ': ' + c.what : ''), datos: { x: Math.floor(W.player.x / TS), y: Math.floor(W.player.y / TS) } }); });
     wrap(GameplayState.prototype, 'worldHint', function () { self.ev('pista', { detalle: 'Pide una pista [H]' }); });
     wrap(Guardian.prototype, 'defeat', function () { self.ev('guardian_vencido', { detalle: 'Vence a ' + this.spec.name, concepto: CONCEPTS[this.spec.concept] || '', valor: this.quizWrong ? this.quizWrong + ' consulta(s) fallada(s)' : 'consultas perfectas' }); });
     // sesión: al ocultar o cerrar la página se envía lo pendiente

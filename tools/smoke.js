@@ -30,6 +30,11 @@ const file = 'file://' + path.resolve(__dirname, '..', 'index.html');
   step('título: ' + await top());
   await key('Enter'); await page.waitForTimeout(1200);
   step('tras NEW GAME: ' + await top());
+  // registro del estudiante: nombre y apellidos con el teclado (sin consentimiento: se juega igual)
+  await page.keyboard.type('Ana Lucía'); await page.keyboard.press('Tab'); await page.keyboard.type('Pérez Gil');
+  await shot('s02b_registro');
+  await page.keyboard.press('Enter'); await page.waitForTimeout(1200);
+  step('registro: ' + await page.evaluate(() => PROG.student && PROG.student.nombre) + ' → ' + await top());
   // prólogo: avanzar diálogos con Enter hasta llegar al nivel 0
   let n = 0;
   for (let i = 0; i < 260; i++) {

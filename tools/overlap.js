@@ -87,6 +87,14 @@ const shots = process.argv[2];
     OV.fullProg();
     OV.reset(new TitleState()); OV.frames(40); OV.capture('Título');
     for (let i = 0; i < 4; i++) { Game.top().sel = i; OV.capture('Título sel' + i); }
+    // registro del estudiante: vacío, con error, con nombres largos, con cada foco y con el consentimiento marcado
+    const rg = new RegisterState(() => {}); Game.push(rg);
+    OV.capture('Registro vacío');
+    rg.err = 'Usa sólo letras, espacios, guiones o apóstrofos.'; OV.capture('Registro con error');
+    rg.inputs[0].value = 'María Guadalupe Alejandra'; rg.inputs[1].value = 'de la Concepción Villaseñor';
+    for (let f = 0; f < 4; f++) { rg.focus = f; OV.capture('Registro foco ' + f); }
+    rg.consent = true; rg.err = ''; OV.capture('Registro con consentimiento');
+    Game.pop();
     Game.push(new SettingsState()); for (let i = 0; i < 16; i++) { Game.top().sel = i; OV.capture('Ajustes sel' + i); } Game.pop();
     Game.push(new ControlsState()); for (let i = 0; i < 16; i++) { Game.top().sel = i; OV.capture('Controles sel' + i); } Game.pop();
     Game.push(new TeacherState()); OV.capture('Docente');
@@ -142,6 +150,12 @@ const shots = process.argv[2];
     d2.chars = d2.full; Game.push(d2); OV.capture('Diálogo con elecciones'); Game.pop();
     Game.push(new ChoicePromptState('BUS BRIDGE — origen «CPU (DIRECCIÓN)». La CPU indica al controlador la posición 0x1F40 que quiere leer. ¿Qué tipo de señal es 0x1F40?', ['BUS DE DATOS', 'BUS DE DIRECCIONES', 'BUS DE CONTROL', 'LOS TRES: DATOS + DIRECCIONES + CONTROL'], { col: PAL.amber, sub: 'CPU (DIRECCIÓN) → CONTROLADOR DE MEMORIA' })); OV.capture('Elección larga'); Game.pop();
     W.player.invuln = 99; W.player.graceT = 99; for (const e of W.entities) if (e.enemy) e.dead = true; // (sólo interesa el HUD)
+    // con un estudiante registrado de nombre largo: etiqueta del protagonista y su nombre dentro del texto
+    PROG.student = Estudiante.crear('María Guadalupe Alejandra', 'de la Concepción Villaseñor', false);
+    for (const [spk, t] of [['BYTE', long], ['NEXO', '¡BYTE! ' + long], ['VOZ', 'BYTE: ' + long]]) { const d = new DialogueState([[spk, t, 'NEUTRAL']], { world: W }); d.chars = d.full; Game.push(d); OV.capture('Diálogo estudiante ' + spk); Game.pop(); }
+    W.barks.length = 0; W.bark('BYTE', long, 'thinking', 9); OV.frames(60); OV.capture('Aviso del estudiante');
+    W.barks.length = 0; W.bark('NEXO', 'BYTE, ' + long, 'HAPPY', 9); OV.frames(60); OV.capture('Aviso con el nombre del estudiante');
+    W.barks.length = 0; delete PROG.student;
     W.bark('NEXO', long, 'HAPPY', 9); UI.toast('LOGRO: Explorador curioso', PAL.gold); UI.toast('+50 XP  historia', PAL.green); UI.toast('LETRA OCULTA «X» (3/5)', PAL.gold); W.tip(null, long);
     for (let k = 0; k < 8; k++) { OV.frames(20); OV.capture('HUD con aviso, toasts y consejo t' + k); }
     return 0;

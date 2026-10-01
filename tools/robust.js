@@ -64,7 +64,7 @@ const ok = (c, msg) => console.log((c ? '✓ ' : '✗ ') + msg);
     await page.keyboard.press('Enter'); await page.waitForTimeout(2600);
     await page.keyboard.press('Enter'); await page.waitForTimeout(800);
     const t = await page.evaluate(() => Game.top().constructor.name);
-    await page.evaluate(() => { Game.newGame(); IntroState.prototype.skip.call(Game.top()); });
+    await page.evaluate(() => { Game.newGame(); const r = Game.top(); r.inputs[0].value = 'Ana'; r.inputs[1].value = 'Pérez'; r.submit(); IntroState.prototype.skip.call(Game.top()); });
     await page.waitForTimeout(800);
     const r = await page.evaluate(() => { Game.save(); AudioSys.play('jump'); AudioSys.playMusic('boot'); return { top: Game.top().constructor.name, level: Game.world && Game.world.index, avail: SaveManager.available }; });
     ok(t === 'TitleState' && r.level === 0 && r.avail === false, 'sin localStorage ni audio: arranca y juega ' + JSON.stringify(r));

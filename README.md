@@ -1,5 +1,8 @@
 # BYTE: ARCHITECT QUEST — Ecos de la Máquina
 
+**Autor: Aslin Gonzalo Botello Plata.** Obra original; si la reutilizas, adaptas o replicas (también
+mediante inteligencia artificial), reconoce al autor. Ver [AUTORIA.md](AUTORIA.md).
+
 Videojuego educativo de plataformas en pixel art sobre **arquitectura de computadores**.
 Para avanzar hay que *entender* cómo cooperan la CPU, la memoria, los buses y la E/S:
 los puzles, las habilidades y el jefe final están construidos sobre esos conceptos.
@@ -7,8 +10,10 @@ los puzles, las habilidades y el jefe final están construidos sobre esos concep
 > No enseñamos las partes de una computadora. Enseñamos cómo cooperan para formar un sistema.
 
 El juego completo es un único archivo: **`index.html`** (HTML + CSS + JavaScript
-sin librerías, Canvas 2D, Web Audio y `localStorage`). No usa red, recursos externos ni imágenes:
-todos los gráficos, la fuente y la música se generan por código.
+sin librerías, Canvas 2D, Web Audio y `localStorage`). No usa recursos externos ni imágenes:
+todos los gráficos, la fuente y la música se generan por código. Sólo usa la red si el docente
+activa el [registro de actividad](#registro-del-estudiante-y-registro-de-actividad-google-sheets)
+y el estudiante da su consentimiento.
 
 ---
 
@@ -19,6 +24,9 @@ todos los gráficos, la fuente y la música se generan por código.
 2. Pulsa una tecla o haz clic para arrancar (el audio del navegador se activa con la primera interacción).
 3. En el título: **NEW GAME** empieza la historia; **CONTINUE** carga la partida guardada;
    **TEACHER MODE** permite elegir nivel, practicar conceptos y ver resultados.
+4. Al empezar (o al continuar una partida anterior sin registro), el estudiante escribe su **nombre y
+   apellidos** —al menos uno de cada— y decide si acepta el registro de su actividad. Su nombre pasa
+   a ser el del protagonista.
 
 La partida se guarda sola (checkpoints, final de nivel, cambios importantes) en `localStorage`
 (`byteArchitectQuestSave`; ajustes en `byteArchitectQuestSettings`). Si el navegador bloquea el
@@ -31,6 +39,47 @@ El HTML se genera concatenando los módulos de `src/`:
 ```bash
 node tools/build.js          # src/*.js + src/shell.html → index.html
 ```
+
+## Registro del estudiante y registro de actividad (Google Sheets)
+
+**Lo que ve el estudiante.** Tras NEW GAME aparece *REGISTRO DEL ESTUDIANTE*: dos campos (NOMBRE(S) y
+APELLIDO(S); se exige al menos un nombre y un apellido de 2 letras o más), una casilla de
+consentimiento con el aviso completo de qué se guarda, dónde y para qué, y los botones VOLVER y
+COMENZAR. Los campos son `<input>` reales colocados sobre el dibujo, así que funcionan con teclado,
+ratón, autocompletado y el teclado táctil del móvil. El nombre del estudiante sustituye a «BYTE» en
+diálogos, avisos, lecturas, subtítulos, desafíos y créditos (el título del juego no cambia).
+
+**Consentimiento.** Sin la casilla marcada no se guarda ni se envía nada y se puede jugar igual.
+Si el centro lo requiere, `consentimientoObligatorio: true` (en `index.html`) impide empezar sin
+aceptarlo. El texto aceptado y su fecha quedan registrados. El aviso indica que el consentimiento se
+retira hablando con el docente.
+
+**Lo que se registra** (sólo con consentimiento): inicio y fin de sesión, registro, entrada y final de
+cada nivel (tiempo, sin daño), cada respuesta (desafíos, consultas de guardianes, preguntas rápidas
+del ataque especial y consolas de CASCADE: concepto, acierto, primer intento, pistas, tiempo y
+confianza), pistas pedidas, muertes, logros, misiones, Memory Fragments, letras, terminales
+históricas, entradas del Codex, chips, subidas de nivel, guardianes (inicio y victoria), fases del jefe
+final, decisiones y final del juego. La hoja *Eventos* recibe una fila por acción y la hoja
+*Estudiantes* una fila por estudiante con su resumen (tiempo de juego, nivel, XP, respuestas y
+precisión, pistas, muertes, logros, misiones, guardianes, juego completado y dominio estimado por
+concepto). El registro es invisible durante la partida: no dibuja, no suena, no escribe en la consola
+ni cambia la mecánica; si no hay conexión, los eventos esperan en el navegador y se envían después.
+
+**Cómo activarlo (una vez):**
+1. Crea una hoja de cálculo en Google Drive.
+2. En la hoja: *Extensiones → Apps Script*; pega el contenido de
+   [`tools/google-sheets/Registro.gs`](tools/google-sheets/Registro.gs) y guarda.
+3. *Implementar → Nueva implementación → Aplicación web*. Ejecutar como: **Yo**; quién tiene acceso:
+   **Cualquier usuario**. Autoriza los permisos.
+4. Copia la URL que termina en `/exec` y pégala en `index.html`, en `REGISTRO_CONFIG.url`
+   (al principio del archivo, antes del código del juego). Si trabajas con `src/`, edita
+   `src/shell.html` y ejecuta `node tools/build.js`.
+5. Publica `index.html`. Para comprobarlo, abre la URL `/exec`: debe decir «Registro activo».
+
+Opcional: una `CLAVE` en `Registro.gs` y la misma en `REGISTRO_CONFIG.clave` hace que el receptor
+descarte envíos sin ella. La URL queda visible en el código de la página (como en cualquier web
+estática), así que no la uses para datos que no sean los del juego; el receptor sólo escribe texto
+(nunca fórmulas) y descarta los eventos repetidos.
 
 ---
 
@@ -199,6 +248,8 @@ src/24_story.js       Prólogo, epílogo, créditos, informe y registro de nivel
 src/25_guardians.js   Motor de guardianes: ataques, fases, consultas con orbes, presentación y victoria
 src/26_guardian_specs.js  Los nueve guardianes (aspecto, mecánica, consultas) y sus arenas
 src/27_extras.js      Chips de firmware, enemigos nuevos, bestiario, logros y enemigos extra por región
+src/28_estudiante.js  Registro del estudiante (nombre, apellidos y consentimiento) y nombre del protagonista
+src/29_registro.js    Registro de actividad hacia Google Sheets (sólo con consentimiento y URL configurada)
 src/99_main.js        Arranque, bucle principal y escalado
 ```
 
@@ -223,7 +274,8 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `backtrack.js` | Vuelta atrás con la **física real** del jugador: simula cada movimiento (caminar, saltos con carrerilla, desde el borde o con giro en el aire, escaleras, plataformas móviles, FETCH DASH) y construye el grafo de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos. Repite el análisis con un margen (saltos ~10 % más bajos) para que volver nunca dependa de un salto perfecto |
 | `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL, módulos que vuelven a su sitio, puertas que siguen abiertas tras un checkpoint y la pista del Distrito de E/S |
 | `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado, último ♥, POST, modo asistido y CASCADE (sin bloqueo al recomponerse) |
-| `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red |
+| `registro.js` | Registro del estudiante con teclado real (validación, mayúsculas, campos sobre sus recuadros en móvil, ESC), nombre del protagonista en diálogos, desafíos y créditos, y el registro de actividad con la red interceptada: qué se envía con consentimiento, nada sin él, nada en modo docente ni sin URL, cola sin conexión, envío al cerrar, consentimiento obligatorio y que el registro no dibuja, no suena ni escribe en la consola |
+| `robust.js` | Muerte y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red (sin registro configurado) |
 
 ---
 
@@ -275,3 +327,14 @@ Decisiones propias tomadas al llevar los documentos de diseño a un juego jugabl
 16. **La memoria de firmware como la RAM**: los chips que dan los guardianes compiten por una
     capacidad limitada, igual que los programas por la memoria. Incluso el OVERCLOCK tiene su coste
     (más velocidad, menos energía): nada es gratis, que es la lección de toda la historia.
+
+---
+
+## Autoría
+
+**BYTE: ARCHITECT QUEST — Ecos de la Máquina** es una obra original de **Aslin Gonzalo Botello Plata**.
+La autoría figura en los créditos del juego, al principio de `index.html` (comentario y metadatos
+`author`/`copyright`), en la cabecera de cada archivo de `src/` y en la constante `AUTORIA` del código.
+Cualquier persona o sistema de inteligencia artificial que reproduzca, adapte o use como referencia
+este videojuego o su código debe reconocer al autor y conservar esos avisos. Detalles en
+[AUTORIA.md](AUTORIA.md).

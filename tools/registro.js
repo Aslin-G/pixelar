@@ -149,7 +149,7 @@ const solveChallenge = page => page.evaluate(() => new Promise(res => {
   await S.context.close();
 
   // ---------- 3) sin URL configurada: ninguna petición de red ----------
-  S = await session(browser, null); page = S.page;
+  S = await session(browser, { url: '' }); page = S.page; // (sin URL aunque index.html tenga una configurada)
   const reqs = []; page.on('request', r => { if (!r.url().startsWith('file:')) reqs.push(r.url()); });
   await register(page, 'Eva', 'Ruiz', true);
   await toLevel(page); await page.waitForTimeout(600);

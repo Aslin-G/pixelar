@@ -65,6 +65,9 @@ precisión, pistas, muertes, logros, misiones, guardianes, juego completado y do
 concepto). El registro es invisible durante la partida: no dibuja, no suena, no escribe en la consola
 ni cambia la mecánica; si no hay conexión, los eventos esperan en el navegador y se envían después.
 
+**Estado:** activado. `index.html` envía a la aplicación web del autor
+(`REGISTRO_CONFIG.url`, al principio del archivo). Para usar otra hoja, sigue estos pasos y cambia la URL.
+
 **Cómo activarlo (una vez):**
 1. Crea una hoja de cálculo en Google Drive.
 2. En la hoja: *Extensiones → Apps Script*; pega el contenido de
@@ -75,6 +78,9 @@ ni cambia la mecánica; si no hay conexión, los eventos esperan en el navegador
    (al principio del archivo, antes del código del juego). Si trabajas con `src/`, edita
    `src/shell.html` y ejecuta `node tools/build.js`.
 5. Publica `index.html`. Para comprobarlo, abre la URL `/exec`: debe decir «Registro activo».
+   En el editor de Apps Script, *Ejecutar → probar* añade una fila de prueba y muestra en el registro
+   de ejecución el enlace de la hoja. Si el script se creó desde script.google.com en lugar de desde
+   la hoja, crea él mismo la hoja «Registro BYTE ARCHITECT QUEST» en tu Drive y la reutiliza.
 
 Opcional: una `CLAVE` en `Registro.gs` y la misma en `REGISTRO_CONFIG.clave` hace que el receptor
 descarte envíos sin ella. La URL queda visible en el código de la página (como en cualquier web

@@ -16,6 +16,9 @@
  *      Ejecutar como: «Yo». Quién tiene acceso: «Cualquier usuario». Implementar y autorizar.
  *   5. Copia la URL que termina en /exec y pégala en REGISTRO_CONFIG.url de index.html. Publica index.html.
  *   Comprobación: al abrir la URL /exec en el navegador debe aparecer «Registro activo».
+ *   Si el script se creó desde script.google.com (sin hoja vinculada), crea él mismo la hoja
+ *   «Registro BYTE ARCHITECT QUEST» en tu Drive la primera vez y la reutiliza (Ejecutar → probar
+ *   muestra su enlace en el registro de ejecución).
  *   Si cambias este código: Implementar → Gestionar implementaciones → Editar → Nueva versión (la URL no cambia).
  */
 const CLAVE = '';                // opcional: debe coincidir con REGISTRO_CONFIG.clave del juego
@@ -43,7 +46,7 @@ function doPost(e) {
   let conLock = false;
   try { lock.waitLock(30000); conLock = true; } catch (err) { conLock = false; }
   try {
-    const libro = SpreadsheetApp.getActiveSpreadsheet();
+    const libro = libroDeRegistro();
     guardarEventos(libro, Array.isArray(datos.eventos) ? datos.eventos.slice(0, 500) : [], conLock);
     if (datos.resumen && datos.resumen.id) guardarResumen(libro, datos.resumen);
     return salida('ok');
@@ -55,6 +58,18 @@ function doPost(e) {
 }
 
 function doGet() { return salida('Registro activo — BYTE: ARCHITECT QUEST'); }
+
+// La hoja vinculada al script; si el script es independiente, la suya propia (creada una sola vez)
+function libroDeRegistro() {
+  const activo = SpreadsheetApp.getActiveSpreadsheet();
+  if (activo) return activo;
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('ID_HOJA');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (err) { /* se creará otra */ } }
+  const nuevo = SpreadsheetApp.create('Registro BYTE ARCHITECT QUEST');
+  props.setProperty('ID_HOJA', nuevo.getId());
+  return nuevo;
+}
 
 function guardarEventos(libro, eventos, conLock) {
   if (!eventos.length) return;
@@ -118,5 +133,6 @@ function salida(t) { return ContentService.createTextOutput(t).setMimeType(Conte
 // Prueba manual desde el editor (Ejecutar → probar): añade una fila de ejemplo.
 function probar() {
   const ev = { id: 'PRUEBA-' + Date.now(), fecha: new Date().toISOString(), est: 'EPRUEBA', nombre: 'Estudiante de Prueba', sesion: 'SPRUEBA', n: 1, tipo: 'prueba', nivel: '0 · BOOT CAMP', detalle: 'Fila de prueba del receptor' };
-  doPost({ postData: { contents: JSON.stringify({ v: 1, clave: CLAVE, eventos: [ev], resumen: null }) } });
+  const r = doPost({ postData: { contents: JSON.stringify({ v: 1, clave: CLAVE, eventos: [ev], resumen: null }) } });
+  Logger.log('Resultado: ' + r.getContent() + ' · Hoja de registro: ' + libroDeRegistro().getUrl());
 }

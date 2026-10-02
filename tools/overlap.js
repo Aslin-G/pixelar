@@ -20,7 +20,7 @@ const shots = process.argv[2];
   await page.waitForTimeout(500);
 
   await page.evaluate(() => {
-    const OV = window.OV = { found: [], seen: new Set(), scenes: 0 };
+    const OV = window.OV = { found: [], seen: new Set(), scenes: 0, leaks: [] };
     OV.capture = (name) => {
       const recs = [], rects = [];
       let order = 0;
@@ -34,6 +34,7 @@ const shots = process.argv[2];
         return fr.apply(G, arguments);
       };
       Font.trace = (g, text, x, y, w, h) => {
+        if (/script\.google|\/exec\b|AKfy/.test(text)) OV.leaks.push(name + ': ' + text); // el enlace del registro nunca se dibuja
         if (g !== Game.g || g.globalAlpha < 0.3) return;
         const m = g.getTransform(), s = h / Font.ROWS;
         const X = m.a * x + m.e, Y = m.d * y + m.f;
@@ -97,6 +98,12 @@ const shots = process.argv[2];
     Game.pop();
     Game.push(new SettingsState()); for (let i = 0; i < 16; i++) { Game.top().sel = i; OV.capture('Ajustes sel' + i); } Game.pop();
     Game.push(new ControlsState()); for (let i = 0; i < 16; i++) { Game.top().sel = i; OV.capture('Controles sel' + i); } Game.pop();
+    // ventana de contraseña del modo docente: vacía, con texto, con error y bloqueada
+    const lk = new TeacherLockState(() => {}); Game.push(lk); OV.capture('Contraseña docente');
+    lk.el.value = 'abcdefghijklmnopqrstuvwxyz0123456789'; OV.capture('Contraseña docente con texto');
+    lk.err = 'Contraseña incorrecta (2 intentos antes de esperar).'; OV.capture('Contraseña docente con error');
+    Docente.bloqueo = Date.now() + 30000; OV.capture('Contraseña docente bloqueada'); Docente.bloqueo = 0;
+    Game.pop();
     Game.push(new TeacherState()); OV.capture('Docente');
     const T = Game.top(); T.items[0].fn(); for (let i = 0; i < 13; i++) { Game.top().sel = i; OV.capture('Docente niveles sel' + i); } Game.pop();
     T.items[1].fn(); for (let i = 0; i < 17; i++) { Game.top().sel = i; OV.capture('Docente conceptos sel' + i); } Game.pop();
@@ -278,8 +285,9 @@ const shots = process.argv[2];
     return 0;
   });
 
-  const res = await page.evaluate(() => ({ found: OV.found, scenes: OV.scenes }));
+  const res = await page.evaluate(() => ({ found: OV.found, scenes: OV.scenes, leaks: OV.leaks }));
   console.log('Escenas analizadas: ' + res.scenes + ' · desafíos: ' + nCh);
+  console.log('Enlace del registro dibujado en pantalla: ' + res.leaks.length + (res.leaks.length ? '\n  ' + res.leaks.slice(0, 5).join('\n  ') : ''));
   console.log('Textos superpuestos (' + res.found.length + '):');
   for (const f of res.found) console.log('  ' + f);
   console.log(errors.length ? 'ERRORES:\n  ' + errors.slice(0, 20).join('\n  ') : 'SIN ERRORES');

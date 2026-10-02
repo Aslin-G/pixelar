@@ -17,7 +17,9 @@ const Registro = {
   prog: null, base: null, gVisto: null,
   cfg() {
     const c = (typeof window !== 'undefined' && window.REGISTRO_CONFIG) || {};
-    return { url: String(c.url || '').trim(), clave: String(c.clave || ''), obligatorio: !!c.consentimientoObligatorio };
+    let url = String(c.url || '').trim();
+    if (!url && c.urlCodificada) { try { url = atob(String(c.urlCodificada)).split('').reverse().join(''); } catch (e) { url = ''; } } // (no aparece en claro en el código)
+    return { url, clave: String(c.clave || ''), obligatorio: !!c.consentimientoObligatorio };
   },
   obligatorio() { try { return this.cfg().obligatorio; } catch (e) { return false; } },
   activo() { try { return !!(this.cfg().url && PROG && !PROG.teacher && Estudiante.ok(PROG.student) && PROG.student.consent); } catch (e) { return false; } },

@@ -872,7 +872,7 @@ class TitleState {
     return [
       { label: 'NEW GAME', fn: () => { if (this.has) Game.push(new ConfirmState('¿Empezar de nuevo? Se sobrescribirá la partida.', () => Game.newGame())); else Game.newGame(); } },
       { label: 'CONTINUE', disabled: !this.has, fn: () => this.continueOrPostGame() },
-      { label: 'TEACHER MODE', fn: () => Game.push(new TeacherState()) },
+      { label: 'TEACHER MODE', fn: () => Docente.pedir(() => Game.push(new TeacherState())) }, // (con contraseña)
       { label: 'SETTINGS', fn: () => Game.push(new SettingsState()) }
     ];
   }
@@ -885,7 +885,7 @@ class TitleState {
       onDone: i => {
         if (i === 0) Game.continueGame();
         else if (i === 1) { PROG = d; Game.push(new ReportState()); }
-        else if (i === 2) Game.push(new TeacherState());
+        else if (i === 2) Docente.pedir(() => Game.push(new TeacherState()));
       }
     }));
   }
@@ -956,7 +956,7 @@ class TitleState {
     });
     g.fillStyle = 'rgba(8,14,40,0.8)'; g.fillRect(0, 234, W, 36);
     Font.draw(g, 'Un videojuego sobre cómo cooperan las partes de una computadora.', 240, 237, PAL.grayL, { align: 'center' });
-    Font.draw(g, 'v1.1 · HTML5 + Canvas · sin conexión', 240, 251, PAL.gray, { align: 'center' });
+    Font.draw(g, 'v1.1 · HTML5 + Canvas', 240, 251, PAL.gray, { align: 'center' });
   }
 }
 

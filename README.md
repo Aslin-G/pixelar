@@ -23,7 +23,8 @@ y el estudiante da su consentimiento.
    Basta con hacer doble clic; no necesita servidor ni conexión.
 2. Pulsa una tecla o haz clic para arrancar (el audio del navegador se activa con la primera interacción).
 3. En el título: **NEW GAME** empieza la historia; **CONTINUE** carga la partida guardada;
-   **TEACHER MODE** permite elegir nivel, practicar conceptos y ver resultados.
+   **TEACHER MODE** (protegido con la contraseña del docente) permite elegir nivel, practicar
+   conceptos y ver resultados.
 4. Al empezar (o al continuar una partida anterior sin registro), el estudiante escribe su **nombre y
    apellidos** —al menos uno de cada— y decide si acepta el registro de su actividad. Su nombre pasa
    a ser el del protagonista.
@@ -65,8 +66,11 @@ precisión, pistas, muertes, logros, misiones, guardianes, juego completado y do
 concepto). El registro es invisible durante la partida: no dibuja, no suena, no escribe en la consola
 ni cambia la mecánica; si no hay conexión, los eventos esperan en el navegador y se envían después.
 
-**Estado:** activado. `index.html` envía a la aplicación web del autor
-(`REGISTRO_CONFIG.url`, al principio del archivo). Para usar otra hoja, sigue estos pasos y cambia la URL.
+**Estado:** activado. `index.html` envía a la aplicación web del autor. Su URL está guardada
+codificada (`REGISTRO_CONFIG.urlCodificada`), así que no aparece en claro al ver el código de la
+página, y ningún texto del juego la muestra (lo comprueban `tools/overlap.js` y `tools/docente.js`).
+Las herramientas de desarrollador del navegador sí muestran los envíos: ninguna página web estática
+puede ocultarlos. Para usar otra hoja, sigue estos pasos.
 
 **Cómo activarlo (una vez):**
 1. Crea una hoja de cálculo en Google Drive.
@@ -74,9 +78,9 @@ ni cambia la mecánica; si no hay conexión, los eventos esperan en el navegador
    [`tools/google-sheets/Registro.gs`](tools/google-sheets/Registro.gs) y guarda.
 3. *Implementar → Nueva implementación → Aplicación web*. Ejecutar como: **Yo**; quién tiene acceso:
    **Cualquier usuario**. Autoriza los permisos.
-4. Copia la URL que termina en `/exec` y pégala en `index.html`, en `REGISTRO_CONFIG.url`
-   (al principio del archivo, antes del código del juego). Si trabajas con `src/`, edita
-   `src/shell.html` y ejecuta `node tools/build.js`.
+4. Copia la URL que termina en `/exec` y ejecuta `node tools/configurar.js url "…/exec"`: la guarda
+   codificada en `src/shell.html` y reconstruye `index.html`. (También funciona pegarla en claro en
+   `REGISTRO_CONFIG.url`, al principio de `index.html`.)
 5. Publica `index.html`. Para comprobarlo, abre la URL `/exec`: debe decir «Registro activo».
    En el editor de Apps Script, *Ejecutar → probar* añade una fila de prueba y muestra en el registro
    de ejecución el enlace de la hoja. Si el script se creó desde script.google.com en lugar de desde
@@ -88,6 +92,16 @@ estática), así que no la uses para datos que no sean los del juego; el recepto
 (nunca fórmulas) y descarta los eventos repetidos.
 
 ---
+
+## Modo docente protegido
+
+**TEACHER MODE** —en el título y en el menú de partida completada— pide la **contraseña del
+docente** (alfanumérica, distingue mayúsculas). El código no contiene la contraseña, sólo su huella
+SHA-256 reforzada (20 000 vueltas con sal); tras 3 intentos fallidos el acceso se bloquea 30 s,
+también si se recarga la página. Para cambiarla: `node tools/configurar.js clave "NuevaContraseña"`
+(actualiza la huella y reconstruye `index.html`). Es una protección pensada para el aula: en una
+página web estática, alguien que domine las herramientas de desarrollador podría manipular el
+código, por eso el modo docente no guarda partidas ni envía actividad.
 
 ## Controles
 
@@ -257,6 +271,7 @@ src/26_guardian_specs.js  Los nueve guardianes (aspecto, mecánica, consultas) y
 src/27_extras.js      Chips de firmware, enemigos nuevos, bestiario, logros y enemigos extra por región
 src/28_estudiante.js  Registro del estudiante (nombre, apellidos y consentimiento) y nombre del protagonista
 src/29_registro.js    Registro de actividad hacia Google Sheets (sólo con consentimiento y URL configurada)
+src/30_docente.js     Contraseña del modo docente (huella SHA-256, bloqueo por intentos)
 src/99_main.js        Arranque, bucle principal y escalado
 ```
 
@@ -281,6 +296,8 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `backtrack.js` | Vuelta atrás con la **física real** del jugador: simula cada movimiento (caminar, saltos con carrerilla, desde el borde o con giro en el aire, escaleras, plataformas móviles, FETCH DASH) y construye el grafo de cada nivel; señala zonas sin retorno, objetos inalcanzables y módulos que podrían quedar atascados al llevarlos. Repite el análisis con un margen (saltos ~10 % más bajos) para que volver nunca dependa de un salto perfecto |
 | `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL, módulos que vuelven a su sitio, puertas que siguen abiertas tras un checkpoint y la pista del Distrito de E/S |
 | `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado (−2 ♥ aunque haya POST, energía vacía y bloqueada), modo asistido, CASCADE (sin bloqueo al recomponerse) y la derrota por un ataque especial (cinemática que espera al estudiante y muestra la respuesta correcta) |
+| `docente.js` | Modo docente protegido: SHA-256 igual al de Node, contraseña incorrecta, bloqueo de 30 s tras 3 fallos (también al recargar), entrada con la contraseña correcta (una de prueba, nunca la real), acceso desde el menú de partida completada, y que la URL del registro no aparece en claro en `index.html` ni en ningún texto del juego |
+| `configurar.js` | Cambia la contraseña del docente o la URL del registro y reconstruye `index.html` |
 | `registro.js` | Registro del estudiante con teclado real (validación, mayúsculas, campos sobre sus recuadros en móvil, ESC), nombre del protagonista en diálogos, desafíos y créditos, y el registro de actividad con la red interceptada: qué se envía con consentimiento, nada sin él, nada en modo docente ni sin URL, cola sin conexión, envío al cerrar, consentimiento obligatorio y que el registro no dibuja, no suena ni escribe en la consola |
 | `robust.js` | Muerte (la cinemática de derrota espera al estudiante) y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red (sin registro configurado) |
 

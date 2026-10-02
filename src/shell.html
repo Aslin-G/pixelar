@@ -40,7 +40,8 @@
 // de los estudiantes que dieron su consentimiento en una hoja de cálculo de Google Drive.
 // Vacía = no se registra nada. Instrucciones: README, sección «Registro de actividad».
 window.REGISTRO_CONFIG = window.REGISTRO_CONFIG || {
-  url: 'https://script.google.com/macros/s/AKfycbxSI4-Qimc4mFMuvoMgncMQgyAO2pE-IUyFUKoWlPpdnFYLinc3wALNWKHWYCxrdBU/exec',
+  url: '',                          // (se puede escribir aquí en claro; si está vacía se usa la codificada)
+  urlCodificada: 'Y2V4ZS9VQmRyeENZV0hLV05MQXczY25pTFlGbmRwUGxXb0tVRnlVSS1FcDJPQXlnUU1jbmdNb3Z1TUZtNGNtaVEtNElTeGJjeWZLQS9zL3NvcmNhbS9tb2MuZWxnb29nLnRwaXJjcy8vOnNwdHRo', // node tools/configurar.js url "…/exec"
   clave: '',                        // opcional: la misma CLAVE que en Registro.gs
   consentimientoObligatorio: false  // true: no se puede jugar sin aceptar el registro
 };

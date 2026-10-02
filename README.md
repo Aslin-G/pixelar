@@ -98,8 +98,10 @@ estática), así que no la uses para datos que no sean los del juego; el recepto
 **TEACHER MODE** —en el título y en el menú de partida completada— pide la **contraseña del
 docente** (alfanumérica, distingue mayúsculas). El código no contiene la contraseña, sólo su huella
 SHA-256 reforzada (20 000 vueltas con sal); tras 3 intentos fallidos el acceso se bloquea 30 s,
-también si se recarga la página. Para cambiarla: `node tools/configurar.js clave "NuevaContraseña"`
-(actualiza la huella y reconstruye `index.html`). Es una protección pensada para el aula: en una
+también si se recarga la página. La ventana conserva el foco del campo (lo tecleado siempre entra),
+avisa si Bloq Mayús está activado, ignora espacios al principio y al final, y el botón VER muestra lo
+escrito. Para cambiarla: `node tools/configurar.js clave "NuevaContraseña"` (admite variantes
+aceptadas: `clave "Variante1" "Variante2"`; actualiza las huellas y reconstruye `index.html`). Es una protección pensada para el aula: en una
 página web estática, alguien que domine las herramientas de desarrollador podría manipular el
 código, por eso el modo docente no guarda partidas ni envía actividad.
 

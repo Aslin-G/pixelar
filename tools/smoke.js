@@ -99,7 +99,7 @@ const file = 'file://' + path.resolve(__dirname, '..', 'index.html');
   const sha = t => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
   const cfgD = await page.evaluate(() => ({ sal: DOCENTE.sal, n: DOCENTE.vueltas }));
   let hd = sha(cfgD.sal + '|Prueba.Smoke.1'); for (let i = 1; i < cfgD.n; i++) hd = sha(hd + '|' + cfgD.sal);
-  await page.evaluate(h => { DOCENTE.huella = h; }, hd);
+  await page.evaluate(h => { DOCENTE.huellas = [h]; }, hd);
   await page.keyboard.type('Prueba.Smoke.1'); await key('Enter'); await page.waitForTimeout(800);
   await shot('s11_teacher'); step('docente: ' + await top());
   await key('ArrowDown'); await key('ArrowDown'); await key('ArrowDown');

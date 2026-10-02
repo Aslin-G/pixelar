@@ -59,7 +59,7 @@ const PRUEBA = 'Prueba.Docente.42';
   const lock = await page.evaluate(() => ({ r: Game.top().restante(), err: Game.top().err }));
   await page.reload(); await page.waitForTimeout(500);
   await toTitle(); await chooseTeacher(); await page.waitForTimeout(400);
-  await page.evaluate(h => { DOCENTE.huella = h; }, h);
+  await page.evaluate(h => { DOCENTE.huellas = [h]; }, h);
   await page.keyboard.type(PRUEBA); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
   const l2 = await page.evaluate(() => ({ top: Game.top().constructor.name, r: Game.top().restante && Game.top().restante() }));
   ok(lock.r >= 28 && /espera 30 s/.test(lock.err) && l2.top === 'TeacherLockState' && l2.r > 0, 'tras 3 fallos se bloquea 30 s, incluso recargando la página ' + JSON.stringify({ lock, l2 }));
@@ -72,6 +72,17 @@ const PRUEBA = 'Prueba.Docente.42';
   const inn = await page.evaluate(() => ({ top: Game.top().constructor.name, inputs: document.querySelectorAll('input').length }));
   ok(back[0] === 'TitleState' && back[1] === 0 && inn.top === 'TeacherState' && inn.inputs === 0, 'con la contraseña correcta entra al modo docente; ESC vuelve al título ' + JSON.stringify({ back, inn }));
   if (shots) await page.screenshot({ path: path.join(shots, 'docente_dentro.png') });
+  // aunque se haga clic fuera del campo, lo que se teclea entra en él; VER muestra lo escrito
+  await toTitle(); await chooseTeacher(); await page.waitForTimeout(400);
+  await page.mouse.click(30, 30); await page.keyboard.type(PRUEBA);
+  const typed = await page.evaluate(() => Game.top().el.value);
+  const vr = await page.evaluate(() => Game.top().verR);
+  const box = await page.evaluate(() => { const r = Game.canvas.getBoundingClientRect(); return { x: r.left, y: r.top, s: r.width / W }; });
+  await page.mouse.click(box.x + (vr.x + vr.w / 2) * box.s, box.y + (vr.y + vr.h / 2) * box.s); await page.waitForTimeout(200);
+  const ver = await page.evaluate(() => Game.top().ver);
+  if (shots) await page.screenshot({ path: path.join(shots, 'docente_ver.png') });
+  await page.keyboard.press('Enter'); await page.waitForTimeout(600);
+  ok(typed === PRUEBA && ver && await page.evaluate(() => Game.top().constructor.name) === 'TeacherState', 'tras un clic fuera del campo lo tecleado entra igual; VER muestra la contraseña escrita');
   // al volver a salir y entrar, la vuelve a pedir
   await toTitle(); await chooseTeacher(); await page.waitForTimeout(300);
   ok(await page.evaluate(() => Game.top().constructor.name) === 'TeacherLockState', 'cada entrada al modo docente vuelve a pedir la contraseña');

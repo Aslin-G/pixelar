@@ -341,6 +341,7 @@ class SettingsState {
       { n: 'Reducir sacudidas de pantalla', v: yn(S.reduceShake), adj: () => { S.reduceShake = !S.reduceShake; } },
       { n: 'Reducir destellos y glitch', v: yn(S.reduceFlash), adj: () => { S.reduceFlash = !S.reduceFlash; } },
       { n: 'Efecto scanlines', v: yn(S.scanlines), adj: () => { S.scanlines = !S.scanlines; } },
+      { n: 'Gráficos', v: GFX.name(), adj: d => GFX.cycle(d) },
       { n: 'Dificultad educativa', v: ['GUIADA', 'NORMAL', 'EXPERTA'][S.eduDifficulty], adj: d => { S.eduDifficulty = clamp(S.eduDifficulty + d, 0, 2); } },
       { n: 'Asistencia (sin daño)', v: yn(S.assist), adj: () => { S.assist = !S.assist; } },
       { n: 'Controles táctiles', v: { auto: 'AUTO', yes: 'SÍ', no: 'NO' }[S.touch], adj: d => { const o = ['auto', 'yes', 'no']; S.touch = o[(o.indexOf(S.touch) + d + 3) % 3]; } },
@@ -367,13 +368,14 @@ class SettingsState {
     UI.overlayDim(g, 0.82);
     UI.panel(g, 60, 10, 360, 250, { title: 'SETTINGS — ACCESIBILIDAD', titleCol: PAL.cyan });
     this.rects = [];
-    this.items().forEach((it, i) => {
-      const y = 22 + i * 15;
+    const list = this.items(), step = list.length > 15 ? 14 : 15;
+    list.forEach((it, i) => {
+      const y = 22 + i * step;
       const foc = i === this.sel;
-      if (foc) { g.fillStyle = '#15384A'; g.fillRect(70, y, 340, 14); g.fillStyle = PAL.cyan; g.fillRect(70, y, 2, 14); }
+      if (foc) { g.fillStyle = '#15384A'; g.fillRect(70, y, 340, step - 1); g.fillStyle = PAL.cyan; g.fillRect(70, y, 2, step - 1); }
       Font.draw(g, it.n, 78, y + 1, foc ? PAL.white : PAL.grayL);
       if (it.v) Font.draw(g, '◀ ' + it.v + ' ▶', 404, y + 1, foc ? PAL.cyan : PAL.gray, { align: 'right' });
-      this.rects.push({ x: 70, y, w: 340, h: 14 });
+      this.rects.push({ x: 70, y, w: 340, h: step - 1 });
     });
     UI.keyHints(g, [['↑↓', 'Elegir'], ['←→', 'Cambiar'], ['ESC', 'Volver']], W / 2, 250, 'center');
   }

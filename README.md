@@ -10,7 +10,8 @@ los puzles, las habilidades y el jefe final están construidos sobre esos concep
 > No enseñamos las partes de una computadora. Enseñamos cómo cooperan para formar un sistema.
 
 El juego completo es un único archivo: **`index.html`** (HTML + CSS + JavaScript
-sin librerías, Canvas 2D, Web Audio y `localStorage`). No usa recursos externos ni imágenes:
+sin librerías, Canvas 2D, WebGL2 para el modo [HD-2D](#gráficos-hd-2d-webgl2), Web Audio y `localStorage`).
+No usa recursos externos ni imágenes:
 todos los gráficos, la fuente y la música se generan por código. Sólo usa la red si el docente
 activa el [registro de actividad](#registro-del-estudiante-y-registro-de-actividad-google-sheets)
 y el estudiante da su consentimiento.
@@ -40,6 +41,45 @@ El HTML se genera concatenando los módulos de `src/`:
 ```bash
 node tools/build.js          # src/*.js + src/shell.html → index.html
 ```
+
+## Gráficos HD-2D (WebGL2)
+
+El mundo se dibuja como un **diorama 3/4 lateral** con un renderizador WebGL2 escrito a mano (sin
+librerías). La lógica no cambia: los mapas ASCII, las físicas y las colisiones AABB siguen siendo 2D; la
+profundidad es sólo visual.
+
+- **Cámara off-axis**: el plano de juego (z = 0) cae exactamente 1:1 sobre la pantalla de 480×270 y el
+  punto de fuga queda por encima de la pantalla, así que se ven los techos y algún lateral, sin
+  inclinación isométrica.
+- **Terreno extruido**: cada tile sólido es un prisma de 16 px; su cara frontal es el pixel art original
+  (la misma celda del atlas que en 2D) y el techo y los laterales usan texturas procedurales de cada
+  región. Las plataformas son tablones con grosor, las púas tienen filas hacia el fondo y los charcos
+  superficie. El atrezo y los brotes son tarjetas apoyadas sobre los techos.
+- **Actores siempre delante**: personajes, enemigos, objetos, partículas, proyectiles y etiquetas se
+  dibujan con el mismo código 2D de siempre en capas («bandas») que se colocan en z = 0, por delante del
+  terreno. **HUD, menús, diálogos y textos** siguen en el lienzo 2D, encima, sin alterar.
+- **Luz**: G-buffer y luz diferida con ambiente hemisférico, un sol por región (dirección, color e
+  intensidad propios) y las luces de los objetos (`e.glow()`: terminales, nodos, fragmentos, salidas,
+  atrezo, BYTE y NEXO) como luces puntuales; la luz está calibrada para que las caras frontales
+  mantengan el color del pixel art.
+- **Sombras en tiempo real** (mapas de sombra con PCF) del terreno, del atrezo y de los actores sobre
+  los techos; **relieve** con normales obtenidas por Sobel del propio pixel art.
+- **Posproceso**: oclusión ambiental (SSAO) a media resolución, **bloom Dual-Kawase**, **profundidad de
+  campo tilt-shift** que enfoca el plano de juego (el fondo se desenfoca) y **color por región**
+  (saturación, contraste, viñeta); el ambiente de cada nivel (frío, desaturado, cálido, alarma), la
+  oscuridad con halo, los destellos y el glitch se aplican en el shader.
+
+**Ajustes → Gráficos**: `AUTO` (por defecto: HD-2D si hay WebGL2 con GPU; si el equipo no llega a
+42 FPS baja la calidad y, en último caso, vuelve al 2D), `HD-2D ALTA` (hasta ×4, sombras 2048, SSAO),
+`HD-2D MEDIA` (hasta ×2, sombras 1024, sin SSAO) y `CLÁSICO 2D`. **Respaldo**: el render clásico sigue
+intacto en `World.render`; si no hay WebGL2, la GPU es por software, se pierde el contexto o algo falla,
+ese mismo fotograma se dibuja en 2D. Para pruebas: `index.html?gfx=hd|media|baja|plano|clasico` y
+`&escala=1..4` (`plano` compone las mismas capas sin 3D ni luz: es idéntico al 2D).
+
+Código: `src/31_gfx_core.js` (contexto, programas, texturas, framebuffers y matrices),
+`src/32_gfx_materials.js` (shaders GLSL, texturas procedurales y luz de cada región) y
+`src/33_gfx_renderer.js` (bandas, malla del terreno, cámara, luces y pasadas). Verificación:
+`tools/hd2d.js`.
 
 ## Registro del estudiante y registro de actividad (Google Sheets)
 
@@ -235,9 +275,11 @@ También se puede jugar con **ratón** (menús y desafíos) y con **controles t�
   y BYTE, y partículas ambientales flotando en cada escena. Pantalla de título y laboratorio del
   prólogo rediseñados con más color.
 - Música procedural (15 temas, con el motivo de NEXO y su versión invertida para NULL) y efectos de sonido sintetizados.
+- **Gráficos HD-2D** (WebGL2): diorama 3/4 con terreno en prismas, luces, sombras, relieve, SSAO,
+  bloom, profundidad de campo y color por región, con el 2D clásico como respaldo (ver arriba).
 - Ajustes: volúmenes, velocidad de texto, **subtítulos de sonidos**, alto contraste, reducir
-  parpadeos y vibración de cámara, scanlines, **modo asistido**, dificultad educativa, FPS,
-  reasignación de teclas y controles táctiles.
+  parpadeos y vibración de cámara, scanlines, **gráficos (AUTO / HD-2D / clásico)**, **modo asistido**,
+  dificultad educativa, FPS, reasignación de teclas y controles táctiles.
 - **Lectura tranquila**: mientras hay un diálogo, registro, desafío o escena en pantalla, los enemigos
   y sus disparos se detienen y nada hace daño; al cerrar el texto hay un instante de gracia.
 - **Sin texto encima de texto**: las etiquetas del mundo se recolocan solas, los avisos esperan a que
@@ -274,6 +316,9 @@ src/27_extras.js      Chips de firmware, enemigos nuevos, bestiario, logros y en
 src/28_estudiante.js  Registro del estudiante (nombre, apellidos y consentimiento) y nombre del protagonista
 src/29_registro.js    Registro de actividad hacia Google Sheets (sólo con consentimiento y URL configurada)
 src/30_docente.js     Contraseña del modo docente (huella SHA-256, bloqueo por intentos)
+src/31_gfx_core.js    HD-2D: contexto WebGL2, programas, texturas, framebuffers (MRT) y matrices
+src/32_gfx_materials.js  HD-2D: shaders GLSL (G-buffer, sombras, SSAO, composición, DOF, bloom, color) y texturas procedurales
+src/33_gfx_renderer.js   HD-2D: bandas 2D, prismas del terreno, cámara off-axis, luces y pasadas; respaldo al 2D
 src/99_main.js        Arranque, bucle principal y escalado
 ```
 
@@ -299,6 +344,7 @@ src/99_main.js        Arranque, bucle principal y escalado
 | `fixes.js` | Regresiones pedidas por jugadores: puente de la Placa Base con E, modo calma, control durante el escudo del jefe, escalera de retorno y peldaño junto al módulo ENTRADA del Boot Camp (teclado y física real), aviso del módulo olvidado, REINICIAR NIVEL, módulos que vuelven a su sitio, puertas que siguen abiertas tras un checkpoint y la pista del Distrito de E/S |
 | `mechanics.js` | Mecánicas nuevas: pisotón, choque de paquetes, combo, bestiario, MemoryLeak, Troyano, StackOverflow, los nueve chips y la capacidad de firmware, y un combate contra un guardián **con teclado real** (disparos, consulta con E y pregunta rápida con 1–3), y el ataque especial: pregunta ligada, desvío sin saltarse consultas, tiempo agotado (−2 ♥ aunque haya POST, energía vacía y bloqueada), modo asistido, CASCADE (sin bloqueo al recomponerse) y la derrota por un ataque especial (cinemática que espera al estudiante y muestra la respuesta correcta) |
 | `docente.js` | Modo docente protegido: SHA-256 igual al de Node, contraseña incorrecta, bloqueo de 30 s tras 3 fallos (también al recargar), entrada con la contraseña correcta (una de prueba, nunca la real), acceso desde el menú de partida completada, y que la URL del registro no aparece en claro en `index.html` ni en ningún texto del juego |
+| `hd2d.js` | Render HD-2D: la composición plana es idéntica al 2D en todos los niveles (Fase 1); el plano z = 0 cae píxel a píxel en pantalla, los pies de BYTE coinciden con su AABB y las caras frontales de los prismas son idénticas a los tiles 2D (Fase 2); luces, sombras, SSAO, DOF, bloom y color cambian la imagen; todos los niveles se juegan en HD; HUD y textos siguen en 2D; respaldo al 2D ante un fallo o la pérdida del contexto WebGL; «auto» con GPU por software; ajuste «Gráficos» persistente |
 | `configurar.js` | Cambia la contraseña del docente o la URL del registro y reconstruye `index.html` |
 | `registro.js` | Registro del estudiante con teclado real (validación, mayúsculas, campos sobre sus recuadros en móvil, ESC), nombre del protagonista en diálogos, desafíos y créditos, y el registro de actividad con la red interceptada: qué se envía con consentimiento, nada sin él, nada en modo docente ni sin URL, cola sin conexión, envío al cerrar, consentimiento obligatorio y que el registro no dibuja, no suena ni escribe en la consola |
 | `robust.js` | Muerte (la cinemática de derrota espera al estudiante) y checkpoint, reinicio desde pausa, almacenamiento y audio bloqueados, todas las habilidades en todos los niveles, ajustes, cambio del dominio, reaparición de preguntas falladas (repaso espaciado) y ausencia de peticiones de red (sin registro configurado) |

@@ -56,7 +56,7 @@ function migrateProgress(d) {
 const Settings = {
   data: {
     master: 8, music: 6, sfx: 8, captions: true, textSpeed: 1, contrast: false, reduceShake: false, reduceFlash: false,
-    scanlines: true, eduDifficulty: 1, assist: false, showFps: false, bindings: null, touch: 'auto'
+    scanlines: true, eduDifficulty: 1, assist: false, showFps: false, bindings: null, touch: 'auto', gfx: 'auto'
   },
   load() {
     const s = SaveManager.loadSettings();

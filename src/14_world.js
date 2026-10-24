@@ -491,6 +491,7 @@ class World {
 
   // ---------- render ----------
   render(g) {
+    if (typeof GFX !== 'undefined' && GFX.drawWorld(this, g)) return; // HD-2D (WebGL2); si no, render clásico 2D
     const th = this.theme;
     let sx = 0, sy = 0;
     if (this.shakeT > 0) { sx = Math.round(rand(-1, 1) * this.shakeMag); sy = Math.round(rand(-1, 1) * this.shakeMag); }
